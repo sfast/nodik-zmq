@@ -9,7 +9,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "compile": "./node_modules/babel-cli/bin/babel.js --presets es2015,stage-0 -d lib/ src/",
-    "preproduction": "bash compile.sh"
+    "prepublish": "bash compile.sh"
   },
   "repository": {
     "type": "git",
