@@ -158,7 +158,7 @@ export default class Node  {
         if(!_scope.nodeServer) {
             _scope.nodeServer = new Server();
         }
-        _scope.nodeServer.bind(routerAddress);
+        return _scope.nodeServer.bind(routerAddress);
 
         // ** TODO specify what we need under _onNodeConnected ?
         // _scope.nodeServer.on(events.CLIENT_CONNECTED, _onNodeConnected.bind(this));
