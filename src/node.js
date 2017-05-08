@@ -22,19 +22,19 @@ class WatcherData {
     }
 
     getFnSet() {
-        debug(`getFnSet ${this._event}`);
+        debug(`getFnSet ${this._tag}`);
         return this._fnSet;
     }
 
     addFn(fn) {
-        debug(`addFn ${this._event}`);
+        debug(`addFn ${this._tag}`);
         if(_.isFunction(fn)) {
             this._fnSet.add(fn);
         }
     }
 
     removeFn(fn){
-        debug(`removeFn ${this._event}`);
+        debug(`removeFn ${this._tag}`);
         if(_.isFunction(fn)) {
             this._fnSet.delete(fn);
             return;
@@ -44,25 +44,33 @@ class WatcherData {
     }
 
     addProxyNode(nodeId) {
-        debug(`addProxyNode ${this._event}`);
+        debug(`addProxyNode ${this._tag}`);
         this._nodeSet.add(nodeId);
     }
 
+    removeProxyNode (nodeId) {
+        debug(`removeProxyNode ${this._tag}`);
+    }
+
     hasProxyNode(nodeId) {
-        debug(`hasProxyNode ${this._event}`);
-        return this._nodeSet.has(nodeId);
+        debug(`hasProxyNode ${this._tag}`);
+        return this._nodeSet.delete(nodeId);
     }
 
     getProxyNodeSize() {
-        debug(`getProxyNodeSize ${this._event}`);
+        debug(`getProxyNodeSize ${this._tag}`);
         return this._nodeSet.size;
+    }
+
+    destroy() {
+
     }
 }
 
 class TickWatcher extends  WatcherData {
     constructor(event) {
         super();
-        this._event = event;
+        this._tag = event;
     }
 
     addTickListener(fn) {
@@ -77,7 +85,7 @@ class TickWatcher extends  WatcherData {
 class RequestWatcher extends  WatcherData{
     constructor(endpoint) {
         super();
-        this._endpoint = endpoint;
+        this._tag = endpoint;
     }
 
     addRequestListener(fn) {
@@ -365,6 +373,7 @@ export default class Node  {
             this::_proxyTickToNode(event, nodeId);
         }, this);
 
+        // ** TODO:: @avar add destroy function as a return, like we have for clearInterval or proxyRequest
         return true;
     }
 
@@ -395,7 +404,10 @@ export default class Node  {
             request.reply(responseData);
         });
 
-        return true;
+        return () => {
+            requestWatcher.removeProxyNode(toNodeId);
+            _scope.requestWatcherMap.delete(fromEndpoint);
+        };
     }
 }
 
