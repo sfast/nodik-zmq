@@ -22,12 +22,11 @@ export default class Client extends DealerSocket {
     }
 
     getServerActor() {
-        let _scope = _private.get(this);
-        return _scope.server;
+        return _private.get(this).server;
     }
 
     // ** returns a promise which resolves with server model after server replies to events.CLIENT_CONNECTED
-    connect(serverAddress, {data, response}) {
+    async connect(serverAddress, {data, response}) {
         let connectData = { actor : this.getId()};
         if(data) {
             connectData.data = data;
@@ -38,62 +37,53 @@ export default class Client extends DealerSocket {
         }
 
         let _scope = _private.get(this);
-        return super.connect(serverAddress)
-            .then((status)=>{
-                return this.request(events.CLIENT_CONNECTED, connectData);
-            }).then((responseData) => {
-                let {actor, response} = responseData;
-                // ** creating server model and setting it online
-                let actorModel = new ActorModel( {id: actor} );
-                actorModel.setAddress(serverAddress);
-                actorModel.setOnline();
-                actorModel.setData(response);
-                _scope.server = actorModel;
-                _startServerPinging.bind(this)();
-                return actorModel;
-            }).catch((err) => {
-                debug(err);
-            });
+        await super.connect(serverAddress);
+        let connectResponse = await this.request(events.CLIENT_CONNECTED, connectData);
+        // ** creating server model and setting it online
+        let actorModel = new ActorModel( {id: connectResponse.actor} );
+        actorModel.setAddress(serverAddress);
+        actorModel.setOnline();
+        actorModel.setData(connectResponse.response);
+        _scope.server = actorModel;
+        this::_startServerPinging();
+        return actorModel;
     }
 
-    disconnect(data) {
+    async disconnect(data) {
         let disconnectData = { actor : this.getId()};
         if(data) {
             disconnectData.data = data;
         }
         let _scope = _private.get(this);
-        return this.request(events.CLIENT_STOP, disconnectData)
-            .then((response) => {
-                _stopServerPinging.bind(this)();
-                return super.disconnect();
-            }).then(()=>{
-                let serverId = _scope.server ? _scope.server.getId() : null;
-                _scope.server = null;
-                return serverId;
-            });
+        let response = await this.request(events.CLIENT_STOP, disconnectData);
+        this::_stopServerPinging();
+        await super.disconnect();
+        let serverId = _scope.server ? _scope.server.getId() : null;
+        _scope.server = null;
+        return serverId;
     }
 }
 
 function _startServerPinging(){
-    let _scope = _private.get(this);
+    let context = this;
+    let _scope = _private.get(context);
 
     if(_scope.pingInterval) {
         clearInterval(_scope.pingInterval);
     }
 
-    _scope.pingInterval = setInterval(()=>{
-        let pingData = { actor: this.getId(), stamp : Date.now()};
-        this.request(events.CLIENT_PING, pingData)
-            .then((data) => {
-                if(_scope.server) {
-                    _scope.server.ping(data);
-                }
-            });
+    _scope.pingInterval = setInterval(async ()=>{
+        let pingRequest = { actor: context.getId(), stamp : Date.now()};
+        let pingResponse = await context.request(events.CLIENT_PING, pingRequest);
+        if(_scope.server) {
+            _scope.server.ping(pingResponse);
+        }
     } , INTERVAL_CLIENT_PING);
 }
 
 function _stopServerPinging() {
-    let _scope = _private.get(this);
+    let context = this;
+    let _scope = _private.get(context);
 
     if(_scope.pingInterval) {
         clearInterval(_scope.pingInterval);

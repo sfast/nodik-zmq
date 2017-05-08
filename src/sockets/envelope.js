@@ -113,6 +113,10 @@ export default class Envelop {
         return this.owner;
     }
 
+    setOwner(owner) {
+        this.owner = owner;
+    }
+
     // ** type of envelop
 
     getType() {

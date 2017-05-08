@@ -1,6 +1,7 @@
 import debugFactory from 'debug';
 let debug = debugFactory('node::sockets::socket');
 
+import _ from 'underscore';
 import crypto from 'crypto'
 import { EventEmitter } from 'events'
 
@@ -9,17 +10,26 @@ import { EnvelopType } from './enum'
 
 let _private = new WeakMap();
 
+class SocketIsNotOnline extends Error {
+    constructor({socketId, error}) {
+        super(error.message, error.lineNumber, error.fileName);
+        this.socketId = socketId;
+    }
+}
+
+
 export default class Socket extends EventEmitter {
     constructor (socket) {
         super();
         let _scope = {};
         let randomId = crypto.randomBytes(20).toString("hex");
+        socket.identity = randomId;
+
         _scope.id = randomId;
         _scope.socket = socket;
-        _scope.socket.identity = _scope.id;
         _scope.online = false;
         _scope.requests = new Map();
-        _scope.socket.on("message" , _onSocketMessage.bind(this));
+        _scope.socket.on("message" , this::onSocketMessage);
         _scope.cache = new Map();
         _private.set(this, _scope);
     }
@@ -54,47 +64,67 @@ export default class Socket extends EventEmitter {
         return _scope.online;
     }
 
-    request(event, data, timeout = 5000) {
-        return new Promise((resolve, reject) => {
-            let _scope = _private.get(this);
+    async request(envelop, reqTimeout) {
+        let _scope = _private.get(this);
+        if(!this.isOnline()) {
+            let err = new Error(`Sending failed as socket ${this.getId()} is not online`);
+            throw new SocketIsNotOnline({socketId : _scope.id, error: err });
+        }
 
-            if(!this.isOnline()) {
-                // ** how to handle it ?
-                debug(`Sending failed as socket ${this.getId()} is not online`);
-                return reject(`Sending failed as socket ${this.getId()} is not online`);
+        let envelopId = envelop.getId();
+        let timeout = null;
+
+        return new Promise((resolve, reject) => {
+            if(reqTimeout) {
+                timeout = setTimeout(() => {
+                    if(_scope.requests.has(envelopId)) {
+                        _scope.requests.delete(envelopId);
+                        reject(`Request ${envelopId} timeouted on socket ${this.getId()}`);
+                    }
+                }, reqTimeout);
             }
 
-            let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId()});
-            let envelopId = envelop.getId();
-            let clearRequestTimeout = null;
-
-            let requestPromise = new Promise((resolveRequest, rejectRequest) => {
-                if(timeout) {
-                    clearRequestTimeout = setTimeout(() => {
-
-                        if(_scope.requests.has(envelopId)) {
-                            _scope.requests.delete(envelopId);
-                            rejectRequest(`Request ${envelopId} timeout`);
-                        }
-                    }, timeout);
-                }
-
-                _scope.requests.set(envelopId, {resolve : resolveRequest, reject: rejectRequest, timeout : clearRequestTimeout});
-            });
-
-            resolve({ envelop, request: requestPromise });
+            _scope.requests.set(envelopId, {resolve : resolve, reject: reject, timeout : timeout});
+           this.sendEnvelop(envelop);
         });
     }
 
-    tick(event, data) {
-        return new Promise((resolve, reject) => {
-            if(!this.isOnline()) {
-                // ** how to handle it ?
-                console.error(`Sending failed as socket ${this.getId()} is not online`);
-                return reject(`Sending failed as socket ${this.getId()} is not online`);
-            }
-            let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data : data, owner : this.getId() });
-            resolve(envelop);
+    async tick(envelop) {
+        let _scope = _private.get(this);
+        if (!this.isOnline()) {
+            let err = new Error(`Sending failed as socket ${this.getId()} is not online`);
+            throw new SocketIsNotOnline({socketId: _scope.id, error: err});
+        }
+
+        this.sendEnvelop(envelop);
+        return Promise.resolve();
+    }
+
+    sendEnvelop(envelop) {
+        let _scope = _private.get(this);
+        _scope.socket.send(this.getSocketMsg(envelop));
+    }
+
+    async close(cleanup){
+        if (!this.isOnline()) {
+            return true;
+        }
+
+        let _scope = _private.get(this);
+        _scope.socket.removeAllListeners('message');
+
+        new Promise((resolve, reject) => {
+            setImmediate(() => {
+                try {
+                    // ** closeSocket is overrided under dealer and router
+                    cleanup();
+                    this.setOffline();
+                    resolve("router - unbinded");
+                } catch(err) {
+                    debug(err);
+                    reject(err);
+                }
+            });
         });
     }
 
@@ -128,33 +158,59 @@ export default class Socket extends EventEmitter {
     }
 }
 
+//** Handlers of specific envelop msg-es
 
-// ** when socket is dealer identity is empty
-// ** when socket is router identity is the dealer which sends data
-function _onSocketMessage(empty, envelopBuffer) {
-    let _scope = _private.get(this);
+//** when socket is dealer identity is empty
+//** when socket is router identity is the dealer which sends data
+function onSocketMessage(empty, envelopBuffer) {
+    let context = this;
+    let _scope = _private.get(context);
 
     let {type, id, owner, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
     let envelop = new Envelop({type, id, owner, tag});
+    let envelopData = Envelop.readDataFromBuffer(envelopBuffer);
 
     switch (type) {
         case EnvelopType.ASYNC:
+            context.emit(tag, envelopData);
         case EnvelopType.SYNC:
-            envelop.setData(Envelop.readDataFromBuffer(envelopBuffer));
-            _scope.socket.emit(type, envelop);
+            context::syncEnvelopHandler(envelop, envelopData);
             break;
         case EnvelopType.RESPONSE:
-            if(_scope.requests.has(id)) {
-                //  ** requestObj is like {resolve, reject, timeout : clearRequestTimeout}
-                let requestObj = _scope.requests.get(id);
-                clearTimeout(requestObj.timeout);
-                // ** resolving request promise with response data
-                requestObj.resolve(Envelop.readDataFromBuffer(envelopBuffer));
-                _scope.requests.delete(id);
-            }
-            else {
-                console.error(`Response ${id} is probably time outed`);
-            }
+            context::responseEnvelopHandler(envelop, envelopData);
             break;
+    }
+}
+
+function syncEnvelopHandler(envelop, envelopData) {
+    let context = this;
+    envelop.setData(envelopData);
+    let request = {
+        body: envelopData,
+        reply : (data) => {
+            envelop.setType(EnvelopType.RESPONSE);
+            envelop.setData(data);
+            context.sendEnvelop(envelop);
+        }
+    };
+
+    let eventName = "request-" + envelop.getTag();
+    context.emit(eventName, request);
+}
+
+function responseEnvelopHandler(envelop, envelopData) {
+    let context = this;
+    let _scope = _private.get(context);
+    let id = envelop.getId();
+    if(_scope.requests.has(id)) {
+        //** requestObj is like {resolve, reject, timeout : clearRequestTimeout}
+        let requestObj = _scope.requests.get(id);
+        clearTimeout(requestObj.timeout);
+        //** resolving request promise with response data
+        requestObj.resolve(envelopData);
+        _scope.requests.delete(id);
+    }
+    else {
+        debug(`Response ${id} is probably time outed`);
     }
 }

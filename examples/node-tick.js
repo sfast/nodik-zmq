@@ -1,9 +1,9 @@
 import Promise from 'bluebird'
 import {Node} from '../index'
 
-const MESSAGE_COUNT = 10000;
-const SETINTERVAL_COUNT = 1000;
-const SETINTERVAL_TIME = 50;
+const MESSAGE_COUNT = 1000;
+const SETINTERVAL_COUNT = 100;
+const SETINTERVAL_TIME = 100;
 
 let dns = new Node({ bind: 'tcp://127.0.0.1:6000', layer : 'DNS' });
 
@@ -20,7 +20,7 @@ all.push(layerB.bind());
 
 let _intervals = [];
 
-function _clearIntervals() {
+let _clearIntervals = () => {
     _intervals.forEach((tickIntervalItem) => {
         clearInterval(tickIntervalItem);
     });
@@ -28,7 +28,7 @@ function _clearIntervals() {
 
 let start = null;
 
-function tickWithInterval (t) {
+let tickWithInterval = (t) => {
     let intervalCleaner = setInterval(()=>{
         if(!start) {
             start = Date.now();
@@ -38,29 +38,31 @@ function tickWithInterval (t) {
     }, t);
 
     _intervals.push(intervalCleaner);
-}
+};
 
-Promise.all(all)
-    .then(() => {
-        return layerA.connect(dns.getAddress());
-    })
-    .then(() => {
-        return layerB.connect(dns.getAddress())
-    })
-    .then(() => {
-        let i = 0;
+let run = async () => {
+    console.log("RUN");
 
+    let i = 0;
 
-        dns.onTick("WELCOME", function(data) {
-            i++;
+    await Promise.all(all);
+    console.log("All nodes are binded");
+    await layerA.connect(dns.getAddress());
+    console.log("Layer A connected");
+    await layerB.connect(dns.getAddress());
+    console.log("Layer B connected");
 
-            if(i == MESSAGE_COUNT) {
-                _clearIntervals();
-                console.log(`Time passed: ` , Date.now() - start);
-            }
-        });
-
-        for(let j = 0; j < SETINTERVAL_COUNT; j++) {
-            tickWithInterval(SETINTERVAL_TIME);
+    dns.onTick("WELCOME", (data) => {
+        i++;
+        if(i == MESSAGE_COUNT) {
+            _clearIntervals();
+            console.log(`Time passed: ` , Date.now() - start);
         }
     });
+
+    for(let j = 0; j < SETINTERVAL_COUNT; j++) {
+        tickWithInterval(SETINTERVAL_TIME);
+    }
+};
+
+run();

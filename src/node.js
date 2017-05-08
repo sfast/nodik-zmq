@@ -22,19 +22,19 @@ class WatcherData {
     }
 
     getFnSet() {
-        // console.log(`getFnSet ${this._event}`);
+        debug(`getFnSet ${this._event}`);
         return this._fnSet;
     }
 
     addFn(fn) {
-        // console.log(`addFn ${this._event}`);
+        debug(`addFn ${this._event}`);
         if(_.isFunction(fn)) {
             this._fnSet.add(fn);
         }
     }
 
     removeFn(fn){
-        // console.log(`removeFn ${this._event}`);
+        debug(`removeFn ${this._event}`);
         if(_.isFunction(fn)) {
             this._fnSet.delete(fn);
             return;
@@ -44,17 +44,17 @@ class WatcherData {
     }
 
     addProxyNode(nodeId) {
-        // console.log(`addProxyNode ${this._event}`);
+        debug(`addProxyNode ${this._event}`);
         this._nodeSet.add(nodeId);
     }
 
     hasProxyNode(nodeId) {
-        // console.log(`hasProxyNode ${this._event}`);
+        debug(`hasProxyNode ${this._event}`);
         return this._nodeSet.has(nodeId);
     }
 
     getProxyNodeSize() {
-        // console.log(`getProxyNodeSize ${this._event}`);
+        debug(`getProxyNodeSize ${this._event}`);
         return this._nodeSet.size;
     }
 }
@@ -153,97 +153,71 @@ export default class Node  {
         return nodes;
     }
 
-    bind(routerAddress) {
+    async bind(routerAddress) {
         let _scope = _private.get(this);
         if(!_scope.nodeServer) {
             _scope.nodeServer = new Server();
         }
         return _scope.nodeServer.bind(routerAddress);
-
-        // ** TODO specify what we need under _onNodeConnected ?
-        // _scope.nodeServer.on(events.CLIENT_CONNECTED, _onNodeConnected.bind(this));
     }
 
-    unbind() {
+    async unbind() {
         let _scope = _private.get(this);
-        if(_scope.nodeServer) {
-            return  _scope.nodeServer.unbind()
-                .then((serverId)=>{
-                    _scope.nodeServer = null;
-                    return true;
-                });
+        if(!_scope.nodeServer) {
+            return true;
         }
 
-        return Promise.resolve(() => {
-            return false;
-        });
+        await _scope.nodeServer.unbind();
+        _scope.nodeServer = null;
+        return true;
     }
 
-    connect(address = 'tcp://127.0.0.1:3000') {
-        return new Promise((resolve, reject) => {
-            if (typeof address != 'string' || address.length == 0) {
-                return reject('Wrong type for argument address');
-            }
+    // ** connect returns the id of the connected node
+    async connect(address = 'tcp://127.0.0.1:3000') {
+        if (typeof address != 'string' || address.length == 0) {
+            throw new Error(`Wrong type for argument address ${address}`);
+        }
 
-            let _scope = _private.get(this);
-            let addressHash = md5(address);
-
-
-
-            let nodeClientPromise = null;
-
-            if (!_scope.nodeClientsAddressIndex.has(addressHash)) {
-                let client = new Client();
-                let connectMsg = {node: this.getId(), layer : this.getLayer()};
-                nodeClientPromise = client.connect(address, { data: connectMsg, response: ['node', 'layer']})
-                    .then(() => {
-                        let actorModel = client.getServerActor();
-
-                        let {node, layer} = actorModel.getData();
-                        debug(`Node connected: ${this.getId()} -> ${node}`);
-                        _scope.nodeClientsAddressIndex.set(addressHash, node);
-                        _scope.nodeClients.set(node, client);
-
-                        _addExistingListenersToClient.bind(this)(client);
-
-                        return node;
-                    });
-            } else {
-                nodeClientPromise = Promise.resolve(() => {
-                    let nodeId = _scope.nodeClientsAddressIndex.get(addressHash);
-                    return nodeId;
-                });
-            }
-
-            return nodeClientPromise.then((client)=> {
-                resolve();
-            })
-        });
-    }
-
-    disconnect(address = 'tcp://127.0.0.1:3000') {
+        let _scope = _private.get(this);
         let addressHash = md5(address);
 
-        return new Promise((resolve, reject) => {
-            if (typeof address != 'string' || address.length == 0) {
-                return reject('Wrong type for argument address');
-            }
+        if (_scope.nodeClientsAddressIndex.has(addressHash)) {
+            return _scope.nodeClientsAddressIndex.get(addressHash);
+        }
 
-            let _scope = _private.get(this);
+        let client = new Client();
+        let connectMsg = {node: this.getId(), layer : this.getLayer()};
+        await client.connect(address, { data: connectMsg, response: ['node', 'layer']});
 
-            if(!_scope.nodeClientsAddressIndex.has(addressHash)) {
-                return resolve();
-            }
+        let actorModel = client.getServerActor();
+        let {node, layer} = actorModel.getData();
+         debug(`Node connected: ${this.getId()} -> ${node}`);
+        _scope.nodeClientsAddressIndex.set(addressHash, node);
+        _scope.nodeClients.set(node, client);
 
-            let nodeId = _scope.nodeClientsAddressIndex.get(addressHash);
-            let client = _scope.nodeClients.get(nodeId);
-            return client.disconnect().then(() => {
-                _removeClientAllListeners.bind(this)(client)
-                _scope.nodeClients.delete(nodeId);
-                _scope.nodeClientsAddressIndex.delete(addressHash)
-                resolve();
-            });
-        });
+        this::_addExistingListenersToClient(client);
+        return node;
+    }
+
+    async disconnect(address = 'tcp://127.0.0.1:3000') {
+        if (typeof address != 'string' || address.length == 0) {
+            return reject('Wrong type for argument address');
+        }
+
+        let addressHash = md5(address);
+
+        let _scope = _private.get(this);
+        if(!_scope.nodeClientsAddressIndex.has(addressHash)) {
+            return true;
+        }
+
+        let nodeId = _scope.nodeClientsAddressIndex.get(addressHash);
+        let client = _scope.nodeClients.get(nodeId);
+        await client.disconnect();
+        this::_removeClientAllListeners(client)
+        _scope.nodeClients.delete(nodeId);
+        _scope.nodeClientsAddressIndex.delete(addressHash)
+        return true;
     }
 
     stop() {
@@ -348,12 +322,12 @@ export default class Node  {
             return _scope.nodeServer.tick(clientActor.getId(), event, data);
         }
 
-        if(_scope.nodeClients.has(nodeId)) {
-            // ** nodeId is the serverId of node so we request
-            return _scope.nodeClients.get(nodeId).tick(event, data);
+        if(!_scope.nodeClients.has(nodeId)) {
+            return Promise.reject(`Node with ${nodeId} is not found.`);
         }
 
-        return Promise.reject(`Node with ${nodeId} is not found.`);
+        // ** nodeId is the serverId of node so we request
+        return _scope.nodeClients.get(nodeId).tick(event, data);
     }
 
     requestLayerAny(layer, endpoint, data, timeout = 5000) {
@@ -413,12 +387,10 @@ export default class Node  {
 
         requestWatcher.addProxyNode(toNodeId);
 
-        _self.onRequest(fromEndpoint, function(request){
+        _self.onRequest(fromEndpoint, async (request) => {
             let data = request.body;
-            _self.request(toNodeId, toEndpoint, data, timeout)
-                .then((responseData) => {
-                    request.reply(responseData);
-                });
+            let responseData = await _self.request(toNodeId, toEndpoint, data, timeout)
+            request.reply(responseData);
         });
 
         return Promise.resolve(fromEndpoint);

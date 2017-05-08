@@ -31,61 +31,40 @@ export default class Server extends RouterSocket {
     }
 
     isClientOnline(id){
-        if(!this.getClientById(id)) {
-            return false;
-        }
-
-        return this.getClientById(id).isOnline();
+        return this.getClientById(id) ? this.getClientById(id).isOnline() : false;
     }
 
     getOnlineClients() {
         let _scope = _private.get(this);
-        let onlineNodes = [];
-         _scope.clientModels.forEach((actor) => {
-            if(actor.isOnline()) {
-                onlineNodes.push(actor);
-            }
+        let onlineClients = [];
+        _scope.clientModels.forEach((actor) => {
+           if( actor.isOnline()) {
+               onlineClients.push(actor);
+           }
         });
 
-         return onlineNodes;
+        return onlineClients;
     }
 
-    // ** resolves with server id
-    bind(bindAddress) {
-        return super.bind(bindAddress).then(()=>{
-            _attachServerHandlers.bind(this)();
-            return this.getId();
-        });
+    async bind(bindAddress) {
+        // ** ATTACHING client connected
+        this.onRequest(events.CLIENT_CONNECTED, this::_clientConnectedRequest);
+
+        // ** ATTACHING client stop
+        this.onRequest(events.CLIENT_STOP, this::_clientStopRequest);
+
+        // ** ATTACHING client ping
+        this.onRequest(events.CLIENT_PING, this::_clientPingRequest);
+
+        return super.bind(bindAddress);
     }
 
-    // ** resolves with server id
-    unbind(){
-        let _scope = _private.get(this);
-        // ** DETACHING listeners
-        _detachHandlers.bind(this)();
-        return super.unbind().then(()=>{
-            return this.getId();
-        });
+    async unbind(){
+        this.offRequest(events.CLIENT_CONNECTED);
+        this.offRequest(events.CLIENT_STOP);
+        this.offRequest(events.CLIENT_PING);
+        return super.unbind();
     }
-}
-
-function _attachServerHandlers() {
-    let _scope = _private.get(this);
-
-    // ** ATTACHING client connected
-    this.onRequest(events.CLIENT_CONNECTED, _clientConnectedRequest.bind(this));
-
-    // ** ATTACHING client stop
-    this.onRequest(events.CLIENT_STOP, _clientStopRequest.bind(this));
-
-    // ** ATTACHING client ping
-    this.onRequest(events.CLIENT_PING, _clientPingRequest.bind(this));
-}
-
-function _detachHandlers() {
-    this.offRequest(events.CLIENT_CONNECTED);
-    this.offRequest(events.CLIENT_STOP);
-    this.offRequest(events.CLIENT_PING);
 }
 
 // ** Request handlers
@@ -103,19 +82,21 @@ function _clientPingRequest(request) {
 }
 
 function _clientStopRequest(request){
-    let _scope = _private.get(this);
+    let context = this;
+    let _scope = _private.get(context);
     let {actor, data} = request.body;
 
     let actorModel = _scope.clientModels.get(actor);
     actorModel.markStopped();
     actorModel.setData(data);
 
-    this.emit(events.CLIENT_STOP, actorModel);
+    context.emit(events.CLIENT_STOP, actorModel);
     request.reply("BYE");
 }
 
 function _clientConnectedRequest(request) {
-    let _scope = _private.get(this);
+    let context = this;
+    let _scope = _private.get(context);
 
     let {actor, data, response} = request.body;
     response = !_.isArray(response) ? [] : response;
@@ -124,15 +105,15 @@ function _clientConnectedRequest(request) {
     actorModel.setOnline();
 
     if(!_scope.clientCheckInterval) {
-        _scope.clientCheckInterval = setInterval(_checkClientHeartBeat.bind(this), INTERVAL_CHECK_CLIENT_HEARTBEAT);
+        _scope.clientCheckInterval = setInterval(context::_checkClientHeartBeat, INTERVAL_CHECK_CLIENT_HEARTBEAT);
     }
 
     let responseObj = {};
     response.forEach((itemKey) => {
-        responseObj[itemKey] = this.getItem(itemKey);
+        responseObj[itemKey] = context.getItem(itemKey);
     });
 
-    let replyData = {actor: this.getId()};
+    let replyData = {actor: context.getId()};
     if(response.length) {
         replyData.response = responseObj;
     }
@@ -140,18 +121,19 @@ function _clientConnectedRequest(request) {
     request.reply(replyData);
 
     _scope.clientModels.set(actor, actorModel);
-    this.emit(events.CLIENT_CONNECTED, actorModel);
+    context.emit(events.CLIENT_CONNECTED, actorModel);
 }
 
 // ** check clients heartbeat
 function _checkClientHeartBeat(){
+    let context = this;
     this.getOnlineClients().forEach((actor) => {
         if (!actor.isGhost()) {
             actor.markGhost();
         } else {
             actor.markFailed();
-            debug(`Server ${this.getId()} identifies client failure`, actor);
-            this.emit(events.CLIENT_FAILURE, actor);
+            debug(`Server ${context.getId()} identifies client failure`, actor);
+            context.emit(events.CLIENT_FAILURE, actor);
         }
     });
 }
