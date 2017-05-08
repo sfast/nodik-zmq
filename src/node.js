@@ -201,7 +201,7 @@ export default class Node  {
 
     async disconnect(address = 'tcp://127.0.0.1:3000') {
         if (typeof address != 'string' || address.length == 0) {
-            return reject('Wrong type for argument address');
+            throw new Error(`Wrong type for argument address ${address}`);
         }
 
         let addressHash = md5(address);
@@ -299,50 +299,50 @@ export default class Node  {
         }
     }
 
-    request(nodeId, endpoint, data, timeout = 5000) {
+    async request(nodeId, endpoint, data, timeout = 5000) {
         let _scope = _private.get(this);
 
-        let clientActor = _getClientByNode.bind(this)(nodeId);
-
+        let clientActor = this::_getClientByNode(nodeId);
         if(clientActor) {
             return _scope.nodeServer.request(clientActor.getId(), endpoint, data, timeout);
         }
 
         if(_scope.nodeClients.has(nodeId)) {
             // ** nodeId is the serverId of node so we request
-            return _scope.nodeClients.get(nodeId).request(endpoint, data, timeout )
+            return _scope.nodeClients.get(nodeId).request(endpoint, data, timeout);
         }
+
+        throw new Error(`Node with ${nodeId} is not found.`);
     }
 
-    tick(nodeId, event, data) {
+    async tick(nodeId, event, data) {
         let _scope = _private.get(this);
 
-        let clientActor = _getClientByNode.bind(this)(nodeId);
+        let clientActor = this::_getClientByNode(nodeId);
         if(clientActor) {
             return _scope.nodeServer.tick(clientActor.getId(), event, data);
         }
 
-        if(!_scope.nodeClients.has(nodeId)) {
-            return Promise.reject(`Node with ${nodeId} is not found.`);
+        if(_scope.nodeClients.has(nodeId)) {
+            return _scope.nodeClients.get(nodeId).tick(event, data);
         }
 
-        // ** nodeId is the serverId of node so we request
-        return _scope.nodeClients.get(nodeId).tick(event, data);
+        throw new Error(`Node with ${nodeId} is not found.`);
     }
 
-    requestLayerAny(layer, endpoint, data, timeout = 5000) {
+    async requestLayerAny(layer, endpoint, data, timeout = 5000) {
         let layerNodes = this.getNodes(layer);
-        let nodeId = _getWinnerNode.bind(this)(layerNodes, endpoint);
+        let nodeId = this::_getWinnerNode(layerNodes, endpoint);
         return this.request(nodeId, endpoint, data, timeout);
     }
 
-    tickLayerAny(layer, event, data) {
+    async tickLayerAny(layer, event, data) {
         let layerNodes = this.getNodes(layer);
-        let nodeId = _getWinnerNode.bind(this)(layerNodes, event);
+        let nodeId = this::_getWinnerNode(layerNodes, event);
         return this.tick(nodeId, event, data);
     }
 
-    tickLayer(layer, event, data) {
+    async tickLayer(layer, event, data) {
         let layerNodes = this.getNodes(layer);
         let tickPromises = [];
 
@@ -355,22 +355,24 @@ export default class Node  {
 
     // ** TODO what if we add a fn to process data
     // ** we can proxy event to multiple endpoints
-    proxyTick(eventsToProxy, nodeId, fn) {
+    async proxyTick(eventsToProxy, nodeId, fn) {
         if(_.isString(eventsToProxy)) {
             eventsToProxy = [eventsToProxy];
         }
 
         let _scope = _private.get(this);
-        eventsToProxy.forEach( (event) => {
-            _proxyTickToNode.bind(this)(event, nodeId);
+        eventsToProxy.forEach((event) => {
+            this::_proxyTickToNode(event, nodeId);
         }, this);
+
+        return true;
     }
 
     // ** TODO what if we add a fn to process data
     // ** we can proxy endpoint to just one endpoint
-    proxyRequest(fromEndpoint, toNodeId, toEndpoint, timeout = 5000) {
+    async proxyRequest(fromEndpoint, toNodeId, toEndpoint, timeout = 5000) {
         let _scope = _private.get(this);
-        console.log( "proxyRequest",  _scope.requestWatcherMap);
+        debug("proxyRequest",  _scope.requestWatcherMap);
         let _self = this;
         toEndpoint = toEndpoint ? toEndpoint : fromEndpoint;
 
@@ -381,8 +383,8 @@ export default class Node  {
             _scope.requestWatcherMap.set(fromEndpoint, requestWatcher);
         }
 
-        if(requestWatcher.getProxyNodesSize() > 0) {
-            return Promise.reject(`Already has a proxy for ${fromEndpoint}`);
+        if(requestWatcher.getProxyNodeSize() > 0) {
+            throw new Error(`Already has a proxy for ${fromEndpoint}`);
         }
 
         requestWatcher.addProxyNode(toNodeId);
@@ -393,7 +395,7 @@ export default class Node  {
             request.reply(responseData);
         });
 
-        return Promise.resolve(fromEndpoint);
+        return true;
     }
 }
 
@@ -453,7 +455,7 @@ function _addExistingListenersToClient(client) {
     _scope.tickWatcherMap.forEach((tickWatcher, event) => {
         // ** TODO what about order of functions ?
         tickWatcher.getFnSet().forEach((fn) => {
-            client.onTick(event, fn.bind(this));
+            client.onTick(event, this::fn);
         }, this);
     }, this);
 
@@ -461,7 +463,7 @@ function _addExistingListenersToClient(client) {
     _scope.requestWatcherMap.forEach((requestWatcher, endpoint) => {
         // ** TODO what about order of functions ?
         requestWatcher.getFnSet().forEach((fn) => {
-            client.onRequest(endpoint, fn.bind(this));
+            client.onRequest(endpoint, this::fn);
         }, this);
     }, this);
 }
@@ -471,7 +473,7 @@ function _removeClientAllListeners(client) {
 
     // ** adding previously added onTick-s for this client to
     _scope.tickWatcherMap.forEach((tickWatcher, event) => {
-        client.offTick(event, fn.bind(this));
+        client.offTick(event, this::fn);
     }, this);
 
     // ** adding previously added onRequests-s for this client to
