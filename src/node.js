@@ -98,7 +98,9 @@ class RequestWatcher extends  WatcherData{
 }
 
 export default class Node  {
-    constructor({id, bind, layer}) {
+    constructor(data) {
+        data = data || {};
+        let {id, bind, layer} = data;
         let _scope = {
             id : id || _generateNodeId(),
             layer : layer || 'default',
