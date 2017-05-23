@@ -2,14 +2,14 @@
   "name": "nodik-zmq",
   "version": "1.0.10",
   "description": "",
-  "main": "index.js",
+  "main": "./lib/index.js",
   "directories": {
     "example": "examples"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "compile": "./node_modules/babel-cli/bin/babel.js --presets es2015,stage-0 -d lib/ src/",
-    "prepublish": "bash compile.sh",
+    "prepublish": "npm run compile",
     "doc": "./node_modules/.bin/jsdoc -c jsdoc.json"
   },
   "repository": {

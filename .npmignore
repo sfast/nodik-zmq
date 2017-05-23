@@ -1,5 +1,6 @@
 .gitignore
-node_modules/
-src/
 .idea/*
 compile.sh
+jsdoc.json
+node_modules/
+docs/

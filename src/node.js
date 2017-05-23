@@ -98,13 +98,18 @@ class RequestWatcher extends  WatcherData{
 }
 
 export default class Node  {
-    constructor(data) {
-        data = data || {};
+    constructor(data = {}) {
         let {id, bind, layer} = data;
+
+        let createServer = (bind) => {
+            let server = new Server(bind);
+            return server;
+        };
+
         let _scope = {
             id : id || _generateNodeId(),
             layer : layer || 'default',
-            nodeServer : new Server(bind),
+            nodeServer : createServer(bind),
             nodeClients : new Map(),
             nodeClientsAddressIndex : new Map(),
 
@@ -358,7 +363,7 @@ export default class Node  {
 
         layerNodes.forEach((nodeId)=> {
             tickPromises.push(this.tick(nodeId, event, data));
-        });
+        }, this);
 
         return Promise.all(tickPromises);
     }

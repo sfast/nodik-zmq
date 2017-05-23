@@ -72,7 +72,7 @@ function _startServerPinging(){
         clearInterval(_scope.pingInterval);
     }
 
-    _scope.pingInterval = setInterval(async ()=>{
+    _scope.pingInterval = setInterval(async ()=> {
         let pingRequest = { actor: context.getId(), stamp : Date.now()};
         let pingResponse = await context.request(events.CLIENT_PING, pingRequest);
         if(_scope.server) {

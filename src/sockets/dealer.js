@@ -62,7 +62,6 @@ export default class DealerSocket extends Socket {
     }
 
     //** Polymorfic Functions
-
     async request(event, data, timeout = 5000) {
         let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId()});
