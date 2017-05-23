@@ -2,7 +2,7 @@
   "name": "nodik-zmq",
   "version": "1.0.12",
   "description": "",
-  "main": "./lib/index.js",
+  "main": "./lib/node.js",
   "directories": {
     "example": "examples"
   },
