@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "compile": "./node_modules/babel-cli/bin/babel.js --presets es2017 -d lib/ src/",
+    "compile": "./node_modules/babel-cli/bin/babel.js -d lib/ src/",
     "prepublish": "npm run compile",
     "doc": "./node_modules/.bin/jsdoc -c jsdoc.json"
   },
