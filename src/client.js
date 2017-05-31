@@ -1,13 +1,12 @@
 import debugFactory from 'debug';
 let debug = debugFactory('node::client');
 
-import {events} from './enum'
-import ActorModel from './actor'
-import {Dealer as DealerSocket} from './sockets'
+import {events} from './enum';
+import globals from './globals';
+import ActorModel from './actor';
+import {Dealer as DealerSocket} from './sockets';
 
 let _private = new WeakMap();
-
-let INTERVAL_CLIENT_PING = 2000;
 
 export default class Client extends DealerSocket {
     constructor() {
@@ -78,7 +77,7 @@ function _startServerPinging(){
         if(_scope.server) {
             _scope.server.ping(pingResponse);
         }
-    } , INTERVAL_CLIENT_PING);
+    } , globals.CLIENT_PING_INTERVAL);
 }
 
 function _stopServerPinging() {

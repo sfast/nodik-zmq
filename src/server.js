@@ -1,15 +1,14 @@
 import debugFactory from 'debug';
 let debug = debugFactory('node::server');
 
-import _ from 'underscore'
-import { events } from './enum'
-import ActorModel from './actor'
+import _ from 'underscore';
+import { events } from './enum';
+import globals from './globals';
+import ActorModel from './actor';
 
-import { Router as RouterSocket } from './sockets'
+import { Router as RouterSocket } from './sockets';
 
 let _private = new WeakMap();
-
-let INTERVAL_CHECK_CLIENT_HEARTBEAT = 4000;
 
 export default class Server extends RouterSocket {
     constructor(bind) {
@@ -105,7 +104,7 @@ function _clientConnectedRequest(request) {
     actorModel.setOnline();
 
     if(!_scope.clientCheckInterval) {
-        _scope.clientCheckInterval = setInterval(context::_checkClientHeartBeat, INTERVAL_CHECK_CLIENT_HEARTBEAT);
+        _scope.clientCheckInterval = setInterval(context::_checkClientHeartBeat, globals.CLIENT_MUST_HEARTBEAT_INTERVAL);
     }
 
     let responseObj = {};

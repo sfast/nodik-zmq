@@ -4,14 +4,15 @@
 import debugFactory from 'debug';
 let debug = debugFactory('node::node');
 
-import _ from 'underscore'
-import  Promise from 'bluebird'
-import md5 from 'md5'
-import animal from 'animal-id'
+import _ from 'underscore';
+import  Promise from 'bluebird';
+import md5 from 'md5';
+import animal from 'animal-id';
 
-import { events } from './enum'
-import Server from './server'
-import Client from './client'
+import { events } from './enum';
+import Server from './server';
+import Client from './client';
+import globals from './globals';
 
 const _private = new WeakMap();
 
@@ -99,7 +100,8 @@ class RequestWatcher extends  WatcherData{
 
 export default class Node  {
     constructor(data = {}) {
-        let {id, bind, layer} = data;
+        let {id, bind, layer, options = {}} = data;
+        options = Object.assign(globals, options);
 
         let createServer = (bind) => {
             let server = new Server(bind);
@@ -109,6 +111,7 @@ export default class Node  {
         let _scope = {
             id : id || _generateNodeId(),
             layer : layer || 'default',
+            options: options,
             nodeServer : createServer(bind),
             nodeClients : new Map(),
             nodeClientsAddressIndex : new Map(),
@@ -314,7 +317,7 @@ export default class Node  {
         }
     }
 
-    async request(nodeId, endpoint, data, timeout = 5000) {
+    async request(nodeId, endpoint, data, timeout = globals.REQUEST_TIMEOUT) {
         let _scope = _private.get(this);
 
         let clientActor = this::_getClientByNode(nodeId);
@@ -345,7 +348,7 @@ export default class Node  {
         throw new Error(`Node with ${nodeId} is not found.`);
     }
 
-    async requestLayerAny(layer, endpoint, data, timeout = 5000) {
+    async requestLayerAny(layer, endpoint, data, timeout = globals.REQUEST_TIMEOUT) {
         let layerNodes = this.getNodes(layer);
         let nodeId = this::_getWinnerNode(layerNodes, endpoint);
         return this.request(nodeId, endpoint, data, timeout);
@@ -386,7 +389,7 @@ export default class Node  {
 
     // ** TODO what if we add a fn to process data
     // ** we can proxy endpoint to just one endpoint
-    async proxyRequest(fromEndpoint, toNodeId, toEndpoint, timeout = 5000) {
+    async proxyRequest(fromEndpoint, toNodeId, toEndpoint, timeout = globals.REQUEST_TIMEOUT) {
         let _scope = _private.get(this);
         debug("proxyRequest",  _scope.requestWatcherMap);
         let _self = this;
