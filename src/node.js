@@ -51,11 +51,12 @@ class WatcherData {
 
     removeProxyNode (nodeId) {
         debug(`removeProxyNode ${this._tag}`);
+        return this._nodeSet.delete(nodeId);
     }
 
     hasProxyNode(nodeId) {
         debug(`hasProxyNode ${this._tag}`);
-        return this._nodeSet.delete(nodeId);
+        return this._nodeSet.has(nodeId);
     }
 
     getProxyNodeSize() {
@@ -103,13 +104,15 @@ export default class Node  {
         let {id, bind, layer, options = {}} = data;
         options = Object.assign(globals, options);
 
+        let nodeId = id || _generateNodeId();
         let createServer = (bind) => {
-            let server = new Server(bind);
+            let nodeInfo = Object.assign({node: nodeId, layer: layer}, options);
+            let server = new Server({bind: bind, options: nodeInfo});
             return server;
         };
 
         let _scope = {
-            id : id || _generateNodeId(),
+            id : nodeId,
             layer : layer || 'default',
             options: options,
             nodeServer : createServer(bind),
@@ -119,10 +122,6 @@ export default class Node  {
             tickWatcherMap: new Map(),
             requestWatcherMap: new Map()
         };
-
-        // ** this data we will use during client connections as to be able to reply client connections with node id
-        _scope.nodeServer.setItem("node", _scope.id);
-        _scope.nodeServer.setItem("layer", _scope.layer);
 
         _private.set(this, _scope);
     }
@@ -144,28 +143,33 @@ export default class Node  {
         }
     }
 
+    getOptions() {
+        let _scope = _private.get(this);
+        return _scope.options;
+    }
+
     getNodes(layerFilter){
         let _scope = _private.get(this);
         let nodes = [];
         if(_scope.nodeServer) {
             _scope.nodeServer.getOnlineClients().forEach((client) => {
-                let {node, layer} = client.getData();
+                let {node, layer} = client.getOptions();
                 if(layer == layerFilter) {
                     nodes.push(node);
                 }
-            });
+            }, this);
         }
 
         if(_scope.nodeClients.size) {
             _scope.nodeClients.forEach((client, nodeId) => {
                 let actorModel = client.getServerActor();
                 if(actorModel.isOnline()) {
-                    let {node, layer} = actorModel.getData();
+                    let {node, layer} = actorModel.getOptions();
                     if(layer == layerFilter) {
                         nodes.push(node);
                     }
                 }
-            });
+            }, this);
         }
 
         return nodes;
@@ -173,9 +177,6 @@ export default class Node  {
 
     async bind(routerAddress) {
         let _scope = _private.get(this);
-        if(!_scope.nodeServer) {
-            _scope.nodeServer = new Server();
-        }
         return _scope.nodeServer.bind(routerAddress);
     }
 
@@ -203,12 +204,11 @@ export default class Node  {
             return _scope.nodeClientsAddressIndex.get(addressHash);
         }
 
-        let client = new Client();
-        let connectMsg = {node: this.getId(), layer : this.getLayer()};
-        await client.connect(address, { data: connectMsg, response: ['node', 'layer']});
+        let nodeInfo = Object.assign({node: this.getId(), layer: this.getLayer()}, this.getOptions());
+        let client = new Client({options: nodeInfo});
+        let {actor, options} = await client.connect(address);
 
-        let actorModel = client.getServerActor();
-        let {node, layer} = actorModel.getData();
+        let {node, layer} = options;
          debug(`Node connected: ${this.getId()} -> ${node}`);
         _scope.nodeClientsAddressIndex.set(addressHash, node);
         _scope.nodeClients.set(node, client);
@@ -232,9 +232,9 @@ export default class Node  {
         let nodeId = _scope.nodeClientsAddressIndex.get(addressHash);
         let client = _scope.nodeClients.get(nodeId);
         await client.disconnect();
-        this::_removeClientAllListeners(client)
+        this::_removeClientAllListeners(client);
         _scope.nodeClients.delete(nodeId);
-        _scope.nodeClientsAddressIndex.delete(addressHash)
+        _scope.nodeClientsAddressIndex.delete(addressHash);
         return true;
     }
 
@@ -249,7 +249,7 @@ export default class Node  {
             if(client.isOnline()) {
                 stopPromise.push(client.disconnect());
             }
-        });
+        }, this);
 
         return Promise.all(stopPromise);
     }
@@ -269,7 +269,7 @@ export default class Node  {
 
         _scope.nodeClients.forEach((client)=>{
             client.onRequest(endpoint, fn);
-        });
+        }, this);
     }
 
     offRequest(endpoint, fn) {
@@ -309,7 +309,7 @@ export default class Node  {
         _scope.nodeServer.offTick(event);
         _scope.nodeClients.forEach((client)=>{
             client.offTick(event, fn);
-        });
+        }, this);
 
         let tickWatcher = _scope.tickWatcherMap.get(event);
         if(tickWatcher) {
@@ -426,7 +426,7 @@ export default class Node  {
 function _getClientByNode(nodeId) {
     let _scope = _private.get(this);
     let actors = _scope.nodeServer.getOnlineClients().filter((actor) => {
-        let { node } =  actor.getData();
+        let { node } =  actor.getOptions();
         return node == nodeId;
     });
 

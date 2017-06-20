@@ -11,8 +11,10 @@ import { Router as RouterSocket } from './sockets';
 let _private = new WeakMap();
 
 export default class Server extends RouterSocket {
-    constructor(bind) {
+    constructor(data = {}) {
+        let {bind, options} = data;
         super();
+        this.setOptions(options);
         this.setAddress(bind);
 
         let _scope = {
@@ -40,12 +42,15 @@ export default class Server extends RouterSocket {
            if( actor.isOnline()) {
                onlineClients.push(actor);
            }
-        });
+        }, this);
 
         return onlineClients;
     }
 
     async bind(bindAddress) {
+        if(_.isString(bindAddress)) {
+            this.setAddress(bindAddress);
+        }
         // ** ATTACHING client connected
         this.onRequest(events.CLIENT_CONNECTED, this::_clientConnectedRequest);
 
@@ -55,7 +60,7 @@ export default class Server extends RouterSocket {
         // ** ATTACHING client ping
         this.onRequest(events.CLIENT_PING, this::_clientPingRequest);
 
-        return super.bind(bindAddress);
+        return super.bind(this.getAddress());
     }
 
     async unbind(){
@@ -83,40 +88,30 @@ function _clientPingRequest(request) {
 function _clientStopRequest(request){
     let context = this;
     let _scope = _private.get(context);
-    let {actor, data} = request.body;
+    let {actor, options} = request.body;
 
     let actorModel = _scope.clientModels.get(actor);
     actorModel.markStopped();
-    actorModel.setData(data);
+    actorModel.mergeOptions(options);
 
     context.emit(events.CLIENT_STOP, actorModel);
-    request.reply("BYE");
+    request.reply(actorModel.getId());
 }
 
 function _clientConnectedRequest(request) {
     let context = this;
     let _scope = _private.get(context);
 
-    let {actor, data, response} = request.body;
-    response = !_.isArray(response) ? [] : response;
+    let {actor, options} = request.body;
 
-    let actorModel = new ActorModel({id: actor, data: data});
-    actorModel.setOnline();
+    let actorModel = new ActorModel({id: actor, options: options, online: true});
 
     if(!_scope.clientCheckInterval) {
         _scope.clientCheckInterval = setInterval(context::_checkClientHeartBeat, globals.CLIENT_MUST_HEARTBEAT_INTERVAL);
     }
 
-    let responseObj = {};
-    response.forEach((itemKey) => {
-        responseObj[itemKey] = context.getItem(itemKey);
-    });
-
-    let replyData = {actor: context.getId()};
-    if(response.length) {
-        replyData.response = responseObj;
-    }
-    // ** replyData {actor, response}
+    let replyData = Object.assign({actor: context.getId(), options: this.getOptions()});
+    // ** replyData {actor, options}
     request.reply(replyData);
 
     _scope.clientModels.set(actor, actorModel);
@@ -134,5 +129,5 @@ function _checkClientHeartBeat(){
             debug(`Server ${context.getId()} identifies client failure`, actor);
             context.emit(events.CLIENT_FAILURE, actor);
         }
-    });
+    }, this);
 }

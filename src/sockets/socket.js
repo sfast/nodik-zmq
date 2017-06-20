@@ -22,15 +22,15 @@ export default class Socket extends EventEmitter {
     constructor (socket) {
         super();
         let _scope = {};
-        let randomId = crypto.randomBytes(20).toString("hex");
-        socket.identity = randomId;
+        let socketId = this.generateSocketId();
+        socket.identity = socketId;
 
-        _scope.id = randomId;
+        _scope.id = socketId;
         _scope.socket = socket;
         _scope.online = false;
         _scope.requests = new Map();
-        _scope.socket.on("message" , this::onSocketMessage);
-        _scope.cache = new Map();
+        _scope.socket.on('message', this::onSocketMessage);
+        _scope.options = {};
         _private.set(this, _scope);
     }
 
@@ -39,14 +39,8 @@ export default class Socket extends EventEmitter {
         return _scope.id;
     }
 
-    setItem(key, value) {
-        let _scope = _private.get(this);
-        _scope.cache.set(key, value);
-    }
-
-    getItem(key) {
-        let _scope = _private.get(this);
-        return _scope.cache.get(key);
+    geterateSocketId() {
+        return crypto.randomBytes(20).toString("hex");
     }
 
     setOnline() {
@@ -64,7 +58,17 @@ export default class Socket extends EventEmitter {
         return _scope.online;
     }
 
-    async request(envelop, reqTimeout) {
+    setOptions(options) {
+        let _scope = _private.get(this);
+        _scope.options = options;
+    }
+
+    getOptions() {
+        let _scope = _private.get(this);
+        return _scope.options;
+    }
+
+    async request(envelop, reqTimeout = 1000) {
         let _scope = _private.get(this);
         if(!this.isOnline()) {
             let err = new Error(`Sending failed as socket ${this.getId()} is not online`);
@@ -75,14 +79,13 @@ export default class Socket extends EventEmitter {
         let timeout = null;
 
         return new Promise((resolve, reject) => {
-            if(reqTimeout) {
-                timeout = setTimeout(() => {
-                    if(_scope.requests.has(envelopId)) {
-                        _scope.requests.delete(envelopId);
-                        reject(`Request ${envelopId} timeouted on socket ${this.getId()}`);
-                    }
-                }, reqTimeout);
-            }
+            timeout = setTimeout(() => {
+                if(_scope.requests.has(envelopId)) {
+                    let requestObj = _scope.requests.get(envelopId);
+                    _scope.requests.delete(envelopId);
+                    requestObj.reject(`Request ${envelopId} timeouted on socket ${this.getId()}`);
+                }
+            }, reqTimeout);
 
             _scope.requests.set(envelopId, {resolve : resolve, reject: reject, timeout : timeout});
            this.sendEnvelop(envelop);
@@ -105,11 +108,8 @@ export default class Socket extends EventEmitter {
         _scope.socket.send(this.getSocketMsg(envelop));
     }
 
+    // ** TODO @dave
     async close(cleanup){
-        if (!this.isOnline()) {
-            return true;
-        }
-
         let _scope = _private.get(this);
         _scope.socket.removeAllListeners('message');
 
@@ -117,9 +117,11 @@ export default class Socket extends EventEmitter {
             setImmediate(() => {
                 try {
                     // ** closeSocket is overrided under dealer and router
-                    cleanup();
+                    if(_.isFunction(cleanup)){
+                        cleanup();
+                    }
                     this.setOffline();
-                    resolve("router - unbinded");
+                    resolve('socket closed');
                 } catch(err) {
                     debug(err);
                     reject(err);
@@ -161,53 +163,58 @@ export default class Socket extends EventEmitter {
 //** Handlers of specific envelop msg-es
 
 //** when socket is dealer identity is empty
-//** when socket is router identity is the dealer which sends data
+//** when socket is router, identity is the dealer which sends data
 function onSocketMessage(empty, envelopBuffer) {
-    let context = this;
-    let _scope = _private.get(context);
+    let _scope = _private.get(this);
 
-    let {type, id, owner, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
-    let envelop = new Envelop({type, id, owner, tag});
+    let {type, id, owner, recipient, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
+    let envelop = new Envelop({type, id, owner, recipient, tag});
     let envelopData = Envelop.readDataFromBuffer(envelopBuffer);
 
     switch (type) {
         case EnvelopType.ASYNC:
-            context.emit(tag, envelopData);
+            this.emit(tag, envelopData);
         case EnvelopType.SYNC:
-            context::syncEnvelopHandler(envelop, envelopData);
+            envelop.setData(envelopData);
+            this::syncEnvelopHandler(envelop);
             break;
         case EnvelopType.RESPONSE:
-            context::responseEnvelopHandler(envelop, envelopData);
+            envelop.setData(envelopData);
+            this::responseEnvelopHandler(envelop);
             break;
     }
 }
 
-function syncEnvelopHandler(envelop, envelopData) {
-    let context = this;
-    envelop.setData(envelopData);
+function syncEnvelopHandler(envelop) {
+    let self = this;
+
+    let prevOwner = envelop.getOwner();
+
     let request = {
-        body: envelopData,
+        body: envelop.getData(),
         reply : (data) => {
+            envelop.setRecipient(prevOwner);
+            envelop.setOwner(this.getId());
             envelop.setType(EnvelopType.RESPONSE);
             envelop.setData(data);
-            context.sendEnvelop(envelop);
+            self.sendEnvelop(envelop);
         }
     };
 
     let eventName = "request-" + envelop.getTag();
-    context.emit(eventName, request);
+    self.emit(eventName, request);
 }
 
-function responseEnvelopHandler(envelop, envelopData) {
-    let context = this;
-    let _scope = _private.get(context);
+function responseEnvelopHandler(envelop) {
+    let _scope = _private.get(this);
+
     let id = envelop.getId();
     if(_scope.requests.has(id)) {
         //** requestObj is like {resolve, reject, timeout : clearRequestTimeout}
         let requestObj = _scope.requests.get(id);
         clearTimeout(requestObj.timeout);
         //** resolving request promise with response data
-        requestObj.resolve(envelopData);
+        requestObj.resolve(envelop.getData());
         _scope.requests.delete(id);
     }
     else {

@@ -47,9 +47,8 @@ export default class DealerSocket extends Socket {
             this.setAddress(routerAddress);
         }
 
-        _scope.socket.connect(_scope.routerAddress);
+        _scope.socket.connect(this.getAddress());
         this.setOnline();
-        return true;
     }
 
     // ** not actually disconnected

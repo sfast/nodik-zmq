@@ -3,18 +3,19 @@
  */
 
 export default class ActorModel {
-    constructor({id, online = true, ping = 0, ghost = 0, fail = 0, stop = 0, address = null, data = null}) {
+    constructor({id, online = true, ping = 0, ghost = 0, fail = 0, stop = 0, address = null, options = {}}) {
         this.id = id;
 
         if(online) {
             this.setOnline();
         }
 
+        this.address = address;
         this.pingStamp = ping;
         this.ghost = ghost;
         this.fail = fail;
         this.stop = stop;
-        this.data = data;
+        this.options = options;
     }
 
     getId() {
@@ -53,24 +54,29 @@ export default class ActorModel {
         this.ghost = false;
     }
 
-    setData(data) {
-        this.data = data;
-    }
-
-    getData() {
-        return this.data;
-    }
-
     ping(stamp, data) {
         this.pingStamp = stamp;
         this.ghost = false;
     }
 
     setAddress(address) {
-       this.address =  address;
+       this.address = address;
     }
 
     getAddress () {
         return this.address;
+    }
+
+    setOptions(options) {
+        this.options = options;
+    }
+
+    mergeOptions(options) {
+        this.options = Object.assign(this.options, options);
+        return this.options;
+    }
+
+    getOptions() {
+        return this.options;
     }
 }

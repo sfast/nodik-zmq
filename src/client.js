@@ -9,12 +9,15 @@ import {Dealer as DealerSocket} from './sockets';
 let _private = new WeakMap();
 
 export default class Client extends DealerSocket {
-    constructor() {
+    constructor(data = {}) {
+        let {options} = data;
         super();
         let _scope = {
             server : null,
             pingInterval : null
         };
+
+        this.setOptions(options);
 
         debug(`Client ${this.getId()} started`);
         _private.set(this, _scope);
@@ -25,35 +28,24 @@ export default class Client extends DealerSocket {
     }
 
     // ** returns a promise which resolves with server model after server replies to events.CLIENT_CONNECTED
-    async connect(serverAddress, {data, response}) {
-        let connectData = { actor : this.getId()};
-        if(data) {
-            connectData.data = data;
-        }
-
-        if(response) {
-            connectData.response = response;
-        }
-
+    async connect(serverAddress) {
         let _scope = _private.get(this);
         await super.connect(serverAddress);
-        let connectResponse = await this.request(events.CLIENT_CONNECTED, connectData);
+        let {actor, options} = await this.request(events.CLIENT_CONNECTED, {actor: this.getId(), options: this.getOptions()});
         // ** creating server model and setting it online
-        let actorModel = new ActorModel( {id: connectResponse.actor} );
-        actorModel.setAddress(serverAddress);
-        actorModel.setOnline();
-        actorModel.setData(connectResponse.response);
-        _scope.server = actorModel;
+
+        _scope.server = new ActorModel( {id: actor, options: options, online: true, address: serverAddress});
         this::_startServerPinging();
-        return actorModel;
+        _scope.server;
     }
 
-    async disconnect(data) {
-        let disconnectData = { actor : this.getId()};
-        if(data) {
-            disconnectData.data = data;
-        }
+    async disconnect(options) {
         let _scope = _private.get(this);
+        let disconnectData = { actor : this.getId()};
+        if(options) {
+            disconnectData.options = options;
+        }
+
         let response = await this.request(events.CLIENT_STOP, disconnectData);
         this::_stopServerPinging();
         await super.disconnect();
@@ -81,8 +73,7 @@ function _startServerPinging(){
 }
 
 function _stopServerPinging() {
-    let context = this;
-    let _scope = _private.get(context);
+    let _scope = _private.get(this);
 
     if(_scope.pingInterval) {
         clearInterval(_scope.pingInterval);

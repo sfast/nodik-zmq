@@ -64,7 +64,7 @@ export default class RouterSocket extends Socket {
 
     // ** returns status
     async unbind() {
-        return super.close(() => {
+        return this.close(() => {
             let _scope = _private.get(this);
             _scope.socket.unbindSync(_scope.bindAddress);
             _scope.bindAddress = null;
@@ -75,17 +75,17 @@ export default class RouterSocket extends Socket {
 
     async request(to, event, data, timeout = 5000) {
         let _scope = _private.get(this);
-        let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : to});
+        let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId(), recipient: to});
         return super.request(envelop);
     }
 
     async tick(to, event, data) {
         let _scope = _private.get(this);
-        let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner: to});
+        let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner : this.getId(), recipient: to});
         return super.tick(envelop);
     }
 
     getSocketMsg(envelop) {
-        return [envelop.getOwner(), '', envelop.getBuffer()];
+        return [envelop.getRecipient(), '', envelop.getBuffer()];
     }
 }
