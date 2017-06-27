@@ -63,11 +63,11 @@ export default class Server extends RouterSocket {
         return super.bind(this.getAddress());
     }
 
-    async unbind(){
+    unbind(){
         this.offRequest(events.CLIENT_CONNECTED);
         this.offRequest(events.CLIENT_STOP);
         this.offRequest(events.CLIENT_PING);
-        return super.unbind();
+        super.unbind();
     }
 }
 

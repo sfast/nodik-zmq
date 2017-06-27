@@ -52,25 +52,27 @@ export default class DealerSocket extends Socket {
     }
 
     // ** not actually disconnected
-    async disconnect() {
-        return super.close(() => {
-            let _scope = _private.get(this);
-            _scope.socket.disconnect(_scope.routerAddress);
-            _scope.routerAddress = null;
-        });
+    disconnect() {
+        this.close();
     }
 
     //** Polymorfic Functions
     async request(event, data, timeout = 5000) {
-        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId()});
         return super.request(envelop);
     }
 
     async tick(event, data) {
-        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner: this.getId()});
         return super.tick(envelop);
+    }
+
+    close () {
+        super.close();
+        let _scope = _private.get(this);
+        _scope.socket.disconnect(_scope.routerAddress);
+        _scope.routerAddress = null;
+        this.setOffline();
     }
 
     getSocketMsg(envelop) {

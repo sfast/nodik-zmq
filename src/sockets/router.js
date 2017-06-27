@@ -63,24 +63,26 @@ export default class RouterSocket extends Socket {
     }
 
     // ** returns status
-    async unbind() {
-        return this.close(() => {
-            let _scope = _private.get(this);
-            _scope.socket.unbindSync(_scope.bindAddress);
-            _scope.bindAddress = null;
-        });
+    unbind() {
+        this.close();
+    }
+
+    close() {
+        super.close();
+        let _scope = _private.get(this);
+        _scope.socket.unbindSync(_scope.bindAddress);
+        _scope.bindAddress = null;
+        this.setOffline();
     }
 
     //** Polymorfic Functions
 
     async request(to, event, data, timeout = 5000) {
-        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId(), recipient: to});
         return super.request(envelop);
     }
 
     async tick(to, event, data) {
-        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner : this.getId(), recipient: to});
         return super.tick(envelop);
     }

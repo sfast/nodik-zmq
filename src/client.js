@@ -36,7 +36,6 @@ export default class Client extends DealerSocket {
 
         _scope.server = new ActorModel( {id: actor, options: options, online: true, address: serverAddress});
         this::_startServerPinging();
-        _scope.server;
     }
 
     async disconnect(options) {
@@ -46,9 +45,9 @@ export default class Client extends DealerSocket {
             disconnectData.options = options;
         }
 
-        let response = await this.request(events.CLIENT_STOP, disconnectData);
+        await this.request(events.CLIENT_STOP, disconnectData);
         this::_stopServerPinging();
-        await super.disconnect();
+        super.disconnect();
         let serverId = _scope.server ? _scope.server.getId() : null;
         _scope.server = null;
         return serverId;

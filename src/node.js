@@ -9,7 +9,6 @@ import  Promise from 'bluebird';
 import md5 from 'md5';
 import animal from 'animal-id';
 
-import { events } from './enum';
 import Server from './server';
 import Client from './client';
 import globals from './globals';
@@ -107,8 +106,7 @@ export default class Node  {
         let nodeId = id || _generateNodeId();
         let createServer = (bind) => {
             let nodeInfo = Object.assign({node: nodeId, layer: layer}, options);
-            let server = new Server({bind: bind, options: nodeInfo});
-            return server;
+            return new Server({bind: bind, options: nodeInfo});
         };
 
         let _scope = {
@@ -161,7 +159,7 @@ export default class Node  {
         }
 
         if(_scope.nodeClients.size) {
-            _scope.nodeClients.forEach((client, nodeId) => {
+            _scope.nodeClients.forEach((client) => {
                 let actorModel = client.getServerActor();
                 if(actorModel.isOnline()) {
                     let {node, layer} = actorModel.getOptions();
@@ -180,13 +178,13 @@ export default class Node  {
         return _scope.nodeServer.bind(routerAddress);
     }
 
-    async unbind() {
+    unbind() {
         let _scope = _private.get(this);
         if(!_scope.nodeServer) {
             return true;
         }
 
-        await _scope.nodeServer.unbind();
+        _scope.nodeServer.unbind();
         _scope.nodeServer = null;
         return true;
     }
@@ -238,11 +236,11 @@ export default class Node  {
         return true;
     }
 
-    stop() {
+    async stop() {
         let _scope = _private.get(this);
         let stopPromise = [];
         if(_scope.nodeServer.isOnline()) {
-            stopPromise.push(_scope.nodeServer.unbind());
+            _scope.nodeServer.unbind();
         }
 
         _scope.nodeClients.forEach((client)=>{
@@ -251,7 +249,7 @@ export default class Node  {
             }
         }, this);
 
-        return Promise.all(stopPromise);
+        await Promise.all(stopPromise);
     }
 
     onRequest(endpoint, fn) {
@@ -383,7 +381,7 @@ export default class Node  {
             this::_proxyTickToNode(event, nodeId);
         }, this);
 
-        // ** TODO:: @avar add destroy function as a return, like we have for clearInterval or proxyRequest
+        // ** TODO:: @avar @dave add destroy function as a return, like we have for clearInterval or proxyRequest
         return true;
     }
 

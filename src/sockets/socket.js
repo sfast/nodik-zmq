@@ -22,7 +22,7 @@ export default class Socket extends EventEmitter {
     constructor (socket) {
         super();
         let _scope = {};
-        let socketId = this.generateSocketId();
+        let socketId = Socket.generateSocketId();
         socket.identity = socketId;
 
         _scope.id = socketId;
@@ -39,7 +39,7 @@ export default class Socket extends EventEmitter {
         return _scope.id;
     }
 
-    geterateSocketId() {
+    static generateSocketId() {
         return crypto.randomBytes(20).toString("hex");
     }
 
@@ -108,35 +108,18 @@ export default class Socket extends EventEmitter {
         _scope.socket.send(this.getSocketMsg(envelop));
     }
 
-    // ** TODO @dave
-    async close(cleanup){
+    close(){
         let _scope = _private.get(this);
         _scope.socket.removeAllListeners('message');
-
-        new Promise((resolve, reject) => {
-            setImmediate(() => {
-                try {
-                    // ** closeSocket is overrided under dealer and router
-                    if(_.isFunction(cleanup)){
-                        cleanup();
-                    }
-                    this.setOffline();
-                    resolve('socket closed');
-                } catch(err) {
-                    debug(err);
-                    reject(err);
-                }
-            });
-        });
     }
 
     onRequest(endpoint, fn) {
         // ** function will called with argument  request = {body, reply}
-        this.on("request-" + endpoint, fn);
+        this.on(`request-${endpoint}`, fn);
     }
 
     offRequest(endpoint, fn){
-        let eventName = "request-" + endpoint;
+        let eventName = `request-${endpoint}`;
 
         if(_.isFunction(fn)) {
             this.removeEventListener(eventName, fn);
@@ -165,8 +148,6 @@ export default class Socket extends EventEmitter {
 //** when socket is dealer identity is empty
 //** when socket is router, identity is the dealer which sends data
 function onSocketMessage(empty, envelopBuffer) {
-    let _scope = _private.get(this);
-
     let {type, id, owner, recipient, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
     let envelop = new Envelop({type, id, owner, recipient, tag});
     let envelopData = Envelop.readDataFromBuffer(envelopBuffer);
@@ -174,6 +155,7 @@ function onSocketMessage(empty, envelopBuffer) {
     switch (type) {
         case EnvelopType.ASYNC:
             this.emit(tag, envelopData);
+            break;
         case EnvelopType.SYNC:
             envelop.setData(envelopData);
             this::syncEnvelopHandler(envelop);
@@ -201,7 +183,7 @@ function syncEnvelopHandler(envelop) {
         }
     };
 
-    let eventName = "request-" + envelop.getTag();
+    let eventName = `request-${envelop.getTag()}`;
     self.emit(eventName, request);
 }
 

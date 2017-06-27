@@ -28,7 +28,7 @@ export default class ActorModel {
     }
 
     markFailed() {
-        this.fail = Date.now();;
+        this.fail = Date.now();
         this.setOffline();
     }
 
@@ -37,11 +37,11 @@ export default class ActorModel {
     }
 
     isGhost() {
-        return this.ghost ? true : false;
+        return !!this.ghost;
     }
 
     isOnline() {
-        return this.online ? true : false;
+        return !!this.online;
     }
 
     setOnline() {
