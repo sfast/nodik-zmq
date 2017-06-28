@@ -68,7 +68,7 @@ export default class Socket extends EventEmitter {
         return _scope.options;
     }
 
-    async request(envelop, reqTimeout = 1000) {
+    async request(envelop, reqTimeout = 5000) {
         let _scope = _private.get(this);
         if(!this.isOnline()) {
             let err = new Error(`Sending failed as socket ${this.getId()} is not online`);
