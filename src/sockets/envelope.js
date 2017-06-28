@@ -27,7 +27,7 @@ class Parse {
 
 
 export default class Envelop {
-    constructor({type, id, tag, data, owner = null, recipient = null}) {
+    constructor({type, id, tag, data, owner = null, recipient = ''}) {
         if(type) {
             this.setType(type);
         }

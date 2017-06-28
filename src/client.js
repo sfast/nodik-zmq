@@ -33,9 +33,9 @@ export default class Client extends DealerSocket {
         await super.connect(serverAddress);
         let {actor, options} = await this.request(events.CLIENT_CONNECTED, {actor: this.getId(), options: this.getOptions()});
         // ** creating server model and setting it online
-
         _scope.server = new ActorModel( {id: actor, options: options, online: true, address: serverAddress});
         this::_startServerPinging();
+        return {actor, options}
     }
 
     async disconnect(options) {
