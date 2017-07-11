@@ -46,10 +46,9 @@ export default class Envelop {
     static readMetaFromBuffer(buffer) {
         let type = buffer.readInt8(0);
         let id = buffer.slice(1,21).toString("hex");
-        let owner = buffer.slice(21,41).toString("hex");
-        let recipient = buffer.slice(41,61).toString("hex");
+        let owner = buffer.slice(21,41).toString('utf8').replace(/\0/g, '');
+        let recipient = buffer.slice(41,61).toString('utf8').replace(/\0/g, '');
         let tag = buffer.slice(61,81).toString('utf8').replace(/\0/g, '');
-
         return {type, id, owner, recipient, tag};
     }
 
@@ -90,11 +89,11 @@ export default class Envelop {
         bufferArray.push(idBuffer);
 
         let ownerBuffer = Buffer.alloc(20);
-        ownerBuffer.write(this.owner, 0, 20, 'hex');
+        ownerBuffer.write(this.owner.toString());
         bufferArray.push(ownerBuffer);
 
         let recipientBuffer = Buffer.alloc(20);
-        recipientBuffer.write(this.recipient, 0, 20, 'hex');
+        recipientBuffer.write(this.recipient.toString());
         bufferArray.push(recipientBuffer);
 
         let tagBuffer = Buffer.alloc(20, '');

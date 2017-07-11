@@ -13,9 +13,9 @@ import { EnvelopType } from './enum'
 let _private = new WeakMap();
 
 export default class DealerSocket extends Socket {
-    constructor() {
+    constructor({id}) {
         let socket =  zmq.socket('dealer');
-        super(socket);
+        super({id, socket});
 
         let _scope = {};
         _scope.socket = socket;
@@ -36,7 +36,7 @@ export default class DealerSocket extends Socket {
     }
 
     // ** not actually connected
-    async connect(routerAddress) {
+    connect(routerAddress) {
         let _scope = _private.get(this);
 
         if(this.isOnline()) {

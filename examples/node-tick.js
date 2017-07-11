@@ -1,14 +1,14 @@
 import Promise from 'bluebird'
-import {Node} from '../src/node'
+import Node from '../src/node'
 
 const MESSAGE_COUNT = 1000;
 const SETINTERVAL_COUNT = 100;
 const SETINTERVAL_TIME = 100;
 
-let dns = new Node({ bind: 'tcp://127.0.0.1:6000', layer : 'DNS' });
+let dns = new Node({ bind: 'tcp://127.0.0.1:6000', options : {layer: 'DNS'}});
 
-let layerA = new Node({ bind: 'tcp://127.0.0.1:6001', layer: 'A'});
-let layerB = new Node({ bind: 'tcp://127.0.0.1:6002', layer: 'B'});
+let layerA = new Node({ bind: 'tcp://127.0.0.1:6001', options : {layer: 'A'}});
+let layerB = new Node({ bind: 'tcp://127.0.0.1:6002', options : {layer: 'B'}});
 
 let errPrint = (err) => {console.log("error" , err)};
 
@@ -33,8 +33,9 @@ let tickWithInterval = (t) => {
         if(!start) {
             start = Date.now();
         }
-        layerA.tick(dns.getId(), "WELCOME", {node : layerA.getId(), name : "layerA"}).catch(errPrint);
-        layerB.tick(dns.getId(), "WELCOME", {node : layerB.getId(), name : "layerB"}).catch(errPrint);
+        layerA.tickAny("WELCOME11111", {node : layerA.getId(), name : "layerA"}, {layer: "DNS"}).catch(errPrint);
+        layerB.tickAny("WELCOMETandz", {node : layerB.getId(), name : "layerB"}, {layer: /^DNS/}).catch(errPrint);
+        // _clearIntervals()
     }, t);
 
     _intervals.push(intervalCleaner);
@@ -52,7 +53,7 @@ let run = async () => {
     await layerB.connect(dns.getAddress());
     console.log("Layer B connected");
 
-    dns.onTick("WELCOME", (data) => {
+    dns.onTick(/^WELCOME/, (data) => {
         i++;
         if(i == MESSAGE_COUNT) {
             _clearIntervals();

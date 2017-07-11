@@ -2,11 +2,12 @@ import debugFactory from 'debug';
 let debug = debugFactory('node::sockets::socket');
 
 import _ from 'underscore';
-import crypto from 'crypto'
-import { EventEmitter } from 'events'
+import animal from 'animal-id';
+import EventEmitter from 'pattern-emitter'
 
 import Envelop from './envelope'
 import { EnvelopType } from './enum'
+import { RequestWatcher} from './watchers'
 
 let _private = new WeakMap();
 
@@ -19,16 +20,18 @@ class SocketIsNotOnline extends Error {
 
 
 export default class Socket extends EventEmitter {
-    constructor (socket) {
+    constructor ({id, socket}) {
         super();
         let _scope = {};
-        let socketId = Socket.generateSocketId();
+        let socketId = id || Socket.generateSocketId();
         socket.identity = socketId;
 
         _scope.id = socketId;
         _scope.socket = socket;
         _scope.online = false;
         _scope.requests = new Map();
+        _scope.requestWatcherMap = new Map();
+        _scope.tickEmitter = new EventEmitter();
         _scope.socket.on('message', this::onSocketMessage);
         _scope.options = {};
         _private.set(this, _scope);
@@ -40,7 +43,7 @@ export default class Socket extends EventEmitter {
     }
 
     static generateSocketId() {
-        return crypto.randomBytes(20).toString("hex");
+        return animal.getId()
     }
 
     setOnline() {
@@ -115,31 +118,43 @@ export default class Socket extends EventEmitter {
 
     onRequest(endpoint, fn) {
         // ** function will called with argument  request = {body, reply}
-        this.on(`request-${endpoint}`, fn);
+        let _scope = _private.get(this);
+        let requestWatcher = _scope.requestWatcherMap.get(endpoint);
+
+        if(!requestWatcher) {
+            requestWatcher = new RequestWatcher(endpoint);
+            _scope.requestWatcherMap.set(endpoint, requestWatcher);
+        }
+        if (typeof fn == 'function') {
+            requestWatcher.addRequestListener(fn);
+        }
     }
 
     offRequest(endpoint, fn){
-        let eventName = `request-${endpoint}`;
-
+        let _scope = _private.get(this);
         if(_.isFunction(fn)) {
-            this.removeEventListener(eventName, fn);
+            let endpointWatcher = _scope.requestWatcherMap.get(endpoint);
+            if (!endpointWatcher) return;
+            endpointWatcher.removeFn(fn)
             return;
         }
 
-        this.removeAllListeners(eventName);
+        _scope.requestWatcherMap.delete(endpoint);
     }
 
     onTick(event, fn) {
-        this.on(event, fn);
+        let _scope = _private.get(this);
+        _scope.tickEmitter.on(event, fn);
     }
 
     offTick(event, fn) {
+        let _scope = _private.get(this);
         if(_.isFunction(fn)) {
-            this.removeEventListener(event, fn);
+            _scope.tickEmitter.removeListener(event, fn);
             return;
         }
 
-        this.removeAllListeners(event);
+        _scope.tickEmitter.removeAllListeners(event);
     }
 }
 
@@ -148,13 +163,14 @@ export default class Socket extends EventEmitter {
 //** when socket is dealer identity is empty
 //** when socket is router, identity is the dealer which sends data
 function onSocketMessage(empty, envelopBuffer) {
+    let _scope = _private.get(this);
     let {type, id, owner, recipient, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
     let envelop = new Envelop({type, id, owner, recipient, tag});
     let envelopData = Envelop.readDataFromBuffer(envelopBuffer);
 
     switch (type) {
         case EnvelopType.ASYNC:
-            this.emit(tag, envelopData);
+            _scope.tickEmitter.emit(tag, envelopData);
             break;
         case EnvelopType.SYNC:
             envelop.setData(envelopData);
@@ -169,9 +185,19 @@ function onSocketMessage(empty, envelopBuffer) {
 
 function syncEnvelopHandler(envelop) {
     let self = this;
+    let _scope = _private.get(this);
 
     let prevOwner = envelop.getOwner();
-
+    let handlers = [];
+    for (let endpoint of _scope.requestWatcherMap.keys()) {
+        if (endpoint instanceof RegExp){
+            if (endpoint.test(envelop.getTag())) {
+                handlers = handlers.concat([..._scope.requestWatcherMap.get(endpoint).getFnSet()])
+            }
+        } else if(endpoint == envelop.getTag()) {
+            handlers = handlers.concat([..._scope.requestWatcherMap.get(endpoint).getFnSet()]);
+        }
+    }
     let request = {
         body: envelop.getData(),
         reply : (data) => {
@@ -180,11 +206,18 @@ function syncEnvelopHandler(envelop) {
             envelop.setType(EnvelopType.RESPONSE);
             envelop.setData(data);
             self.sendEnvelop(envelop);
+        },
+        next: (data) => {
+            if (!handlers.length) {
+                return this.reply(data);
+            }
+            this.body = data;
+            handlers.pop()(this);
         }
     };
-
-    let eventName = `request-${envelop.getTag()}`;
-    self.emit(eventName, request);
+    if (handlers.length) {
+        handlers.pop()(request);
+    }
 }
 
 function responseEnvelopHandler(envelop) {

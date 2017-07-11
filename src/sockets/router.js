@@ -15,9 +15,9 @@ import {EnvelopType} from './enum'
 let _private = new WeakMap();
 
 export default class RouterSocket extends Socket {
-    constructor() {
+    constructor({id}) {
         let socket = zmq.socket('router');
-        super(socket);
+        super({id, socket});
 
         let _scope = {};
         _scope.socket = socket;

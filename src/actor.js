@@ -56,7 +56,17 @@ export default class ActorModel {
 
     ping(stamp, data) {
         this.pingStamp = stamp;
+        if (data) {
+            if (this.ghost) {
+                this.setOffline()
+            }
+            if (!this.online) {
+                this.markGhost()
+            }
+            return;
+        }
         this.ghost = false;
+        this.setOnline()
     }
 
     setAddress(address) {

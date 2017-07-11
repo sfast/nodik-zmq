@@ -8,8 +8,8 @@ describe('Client/Server', () => {
     let client, server;
 
     beforeEach(() => {
-        client = new Client();
-        server = new Server();
+        client = new Client({});
+        server = new Server({});
     });
 
     afterEach(() => {
@@ -24,11 +24,13 @@ describe('Client/Server', () => {
         let expectedMessage = 'xndzor';
         server.bind(address)
             .then(() => {
-                client.connect(address);
+                return client.connect(address);
+            })
+            .then(() => {
                 server.onTick('tandz', (message) => {
                     assert.equal(message, expectedMessage);
                     done();
-                })
+                });
                 client.tick('tandz', expectedMessage);
             })
     });
@@ -37,7 +39,9 @@ describe('Client/Server', () => {
         let expectedMessage = 'xndzor';
         server.bind(address)
             .then(() => {
-                client.connect(address);
+                return client.connect(address);
+            })
+            .then(() => {
                 return client.request('tandz', expectedMessage, 500);
             })
             .catch(err => {
@@ -50,7 +54,9 @@ describe('Client/Server', () => {
         let expectedMessage = 'xndzor';
         server.bind(address)
             .then(() => {
-                client.connect(address);
+                return client.connect(address);
+            })
+            .then(() => {
                 server.onRequest('tandz', ({body, reply}) => {
                     assert.equal(body, expectedMessage);
                     reply(expectedMessage)

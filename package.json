@@ -32,7 +32,8 @@
     "md5": "^2.2.1",
     "underscore": "^1.8.3",
     "uuid": "^3.0.1",
-    "zmq": "^2.15.3"
+    "zmq": "^2.15.3",
+    "pattern-emitter": "latest"
   },
   "devDependencies": {
     "babel-cli": "^6.24.1",
