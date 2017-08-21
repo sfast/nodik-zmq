@@ -1,6 +1,12 @@
 # nodik-zmq
 
-## How to install
+#### Deprecated !!!
+
+##### Further development is happening on [zeronode](https://www.npmjs.com/package/zeronode) npm package.
+##### Contact [Steadfast.tech](www.steadfast.tech) Team if you need a help on how to use nodik-zmq and also [zeronode](https://www.npmjs.com/package/zeronode).
+
+
+#### How to install
 
 ```bash
 npm install node-zmq
