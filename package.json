@@ -1,35 +1,27 @@
 {
-  "_from": "nodik-zmq",
-  "_id": "nodik-zmq@1.0.17",
-  "_inBundle": false,
-  "_integrity": "sha1-Ps4wL4jclT9XRKyKiHnGXihRzTI=",
-  "_location": "/nodik-zmq",
-  "_phantomChildren": {},
-  "_requested": {
-    "type": "tag",
-    "registry": true,
-    "raw": "nodik-zmq",
-    "name": "nodik-zmq",
-    "escapedName": "nodik-zmq",
-    "rawSpec": "",
-    "saveSpec": null,
-    "fetchSpec": "latest"
+  "name": "nodik-zmq",
+  "version": "1.0.18",
+  "description": "",
+  "main": "./lib/node.js",
+  "directories": {
+    "example": "examples"
   },
-  "_requiredBy": [
-    "#USER",
-    "/"
-  ],
-  "_resolved": "https://registry.npmjs.org/nodik-zmq/-/nodik-zmq-1.0.17.tgz",
-  "_shasum": "3ece302f88dc953f5744ac8a8879c65e2851cd32",
-  "_spec": "nodik-zmq",
-  "_where": "/Users/artak/workspace/sfast/multik/tmp",
-  "author": {
-    "name": "Steadfast.tech"
+  "scripts": {
+    "test": "mocha --require babel-core/register",
+    "compile": "./node_modules/babel-cli/bin/babel.js -d lib/ src/",
+    "prepublish": "npm run compile",
+    "doc": "./node_modules/.bin/jsdoc -c jsdoc.json"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sfast/nodik-zmq.git"
+  },
+  "author": "Steadfast.tech",
+  "license": "ISC",
   "bugs": {
     "url": "https://github.com/sfast/nodik-zmq/issues"
   },
-  "bundleDependencies": false,
+  "homepage": "https://github.com/sfast/nodik-zmq#readme",
   "dependencies": {
     "animal-id": "0.0.1",
     "bluebird": "^3.5.0",
@@ -40,10 +32,9 @@
     "md5": "^2.2.1",
     "underscore": "^1.8.3",
     "uuid": "^3.0.1",
-    "zmq": "^2.15.3"
+    "zmq": "^2.15.3",
+    "pattern-emitter": "latest"
   },
-  "deprecated": false,
-  "description": "## How to install",
   "devDependencies": {
     "babel-cli": "^6.24.1",
     "babel-core": "^6.24.1",
@@ -53,24 +44,8 @@
     "babel-preset-es2015": "^6.24.1",
     "babel-preset-es2016": "^6.24.1",
     "babel-preset-es2017": "^6.24.1",
-    "jsdoc-strip-async-await": "^0.1.0"
-  },
-  "directories": {
-    "example": "examples"
-  },
-  "homepage": "https://github.com/sfast/nodik-zmq#readme",
-  "license": "ISC",
-  "main": "./lib/node.js",
-  "name": "nodik-zmq",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/sfast/nodik-zmq.git"
-  },
-  "scripts": {
-    "compile": "./node_modules/babel-cli/bin/babel.js -d lib/ src/",
-    "doc": "jsdoc -c jsdoc.json",
-    "prepublish": "npm run compile",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "version": "1.0.18"
+    "chai": "^4.0.2",
+    "jsdoc-strip-async-await": "^0.1.0",
+    "mocha": "^3.4.2"
+  }
 }
