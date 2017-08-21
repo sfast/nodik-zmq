@@ -1,5 +1,5 @@
 import Promise from 'bluebird'
-import Node from '../src/node'
+import {Node} from '../index'
 
 const MESSAGE_COUNT = 1000;
 

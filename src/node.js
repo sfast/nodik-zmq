@@ -8,42 +8,133 @@ import _ from 'underscore';
 import  Promise from 'bluebird';
 import md5 from 'md5';
 import animal from 'animal-id';
-import { EventEmitter } from 'events'
-import { RequestWatcher, TickWatcher} from './sockets'
 
+import { events } from './enum';
 import Server from './server';
 import Client from './client';
 import globals from './globals';
-import { events } from './enum'
-import * as crypto from "crypto";
 
 const _private = new WeakMap();
 
+class WatcherData {
+    constructor() {
+        this._nodeSet = new Set();
+        this._fnSet = new Set();
+    }
 
-export default class Node extends EventEmitter {
-    constructor({id, bind, options = {}}) {
+    getFnSet() {
+        debug(`getFnSet ${this._tag}`);
+        return this._fnSet;
+    }
+
+    addFn(fn) {
+        debug(`addFn ${this._tag}`);
+        if(_.isFunction(fn)) {
+            this._fnSet.add(fn);
+        }
+    }
+
+    removeFn(fn){
+        debug(`removeFn ${this._tag}`);
+        if(_.isFunction(fn)) {
+            this._fnSet.delete(fn);
+            return;
+        }
+
+        this._fnSet = new Set();
+    }
+
+    addProxyNode(nodeId) {
+        debug(`addProxyNode ${this._tag}`);
+        this._nodeSet.add(nodeId);
+    }
+
+    removeProxyNode (nodeId) {
+        debug(`removeProxyNode ${this._tag}`);
+    }
+
+    hasProxyNode(nodeId) {
+        debug(`hasProxyNode ${this._tag}`);
+        return this._nodeSet.delete(nodeId);
+    }
+
+    getProxyNodeSize() {
+        debug(`getProxyNodeSize ${this._tag}`);
+        return this._nodeSet.size;
+    }
+
+    destroy() {
+
+    }
+}
+
+class TickWatcher extends  WatcherData {
+    constructor(event) {
         super();
+        this._tag = event;
+    }
 
-        id = id || _generateNodeId();
+    addTickListener(fn) {
+        this.addFn(fn);
+    }
+
+    removeTickListener(fn){
+        this.removeFn(fn);
+    }
+}
+
+class RequestWatcher extends  WatcherData{
+    constructor(endpoint) {
+        super();
+        this._tag = endpoint;
+    }
+
+    addRequestListener(fn) {
+        this.addFn(fn);
+    }
+
+    removeRequestListener(fn){
+        this.removeFn(fn);
+    }
+}
+
+export default class Node  {
+    constructor(data = {}) {
+        let {id, bind, layer, options = {}} = data;
+        options = Object.assign(globals, options);
+
+        let createServer = (bind) => {
+            let server = new Server(bind);
+            return server;
+        };
 
         let _scope = {
-            id,
-            options,
-            nodeServer : new Server({id, bind, options}),
+            id : id || _generateNodeId(),
+            layer : layer || 'default',
+            options: options,
+            nodeServer : createServer(bind),
             nodeClients : new Map(),
             nodeClientsAddressIndex : new Map(),
+
             tickWatcherMap: new Map(),
             requestWatcherMap: new Map()
         };
-        _scope.nodeServer.on('error', (err) => {
-            this.emit('error', err);
-        });
+
+        // ** this data we will use during client connections as to be able to reply client connections with node id
+        _scope.nodeServer.setItem("node", _scope.id);
+        _scope.nodeServer.setItem("layer", _scope.layer);
+
         _private.set(this, _scope);
     }
 
     getId() {
         let _scope = _private.get(this);
         return _scope.id;
+    }
+
+    getLayer() {
+        let _scope = _private.get(this);
+        return _scope.layer;
     }
 
     getAddress() {
@@ -53,57 +144,48 @@ export default class Node extends EventEmitter {
         }
     }
 
-    getOptions() {
-        let _scope = _private.get(this);
-        return _scope.options;
-    }
-
-    getFilteredNodes(filter = {}){
+    getNodes(layerFilter){
         let _scope = _private.get(this);
         let nodes = [];
-
-        function checkNode (node) {
-            let options = node.getOptions();
-            let notSatisfying = !!_.find(filter, (filterValue, filterKey) => {
-                if (filterValue instanceof RegExp && typeof options[filterKey] == 'string') {
-                    return !filterValue.test(options[filterKey]);
-                } else if (!(filterValue instanceof RegExp)) {
-                    return !(filterValue == options[filterKey])
-                }
-                return true;
-            });
-            if (!notSatisfying) {
-                nodes.push(node.id);
-            }
-        }
         if(_scope.nodeServer) {
-            _scope.nodeServer.getOnlineClients().forEach(checkNode, this);
+            _scope.nodeServer.getOnlineClients().forEach((client) => {
+                let {node, layer} = client.getData();
+                if(layer == layerFilter) {
+                    nodes.push(node);
+                }
+            });
         }
 
         if(_scope.nodeClients.size) {
-            _scope.nodeClients.forEach((client) => {
+            _scope.nodeClients.forEach((client, nodeId) => {
                 let actorModel = client.getServerActor();
                 if(actorModel.isOnline()) {
-                    checkNode(actorModel);
+                    let {node, layer} = actorModel.getData();
+                    if(layer == layerFilter) {
+                        nodes.push(node);
+                    }
                 }
-            }, this);
+            });
         }
+
         return nodes;
     }
 
     async bind(routerAddress) {
         let _scope = _private.get(this);
-        _scope.nodeServer.on(events.CLIENT_FAILURE, this::_clientFailureHandler);
-        return await _scope.nodeServer.bind(routerAddress);
+        if(!_scope.nodeServer) {
+            _scope.nodeServer = new Server();
+        }
+        return _scope.nodeServer.bind(routerAddress);
     }
 
-    unbind() {
+    async unbind() {
         let _scope = _private.get(this);
         if(!_scope.nodeServer) {
             return true;
         }
-        _scope.nodeServer.removeAllListeners(events.CLIENT_FAILURE);
-        _scope.nodeServer.unbind();
+
+        await _scope.nodeServer.unbind();
         _scope.nodeServer = null;
         return true;
     }
@@ -121,20 +203,18 @@ export default class Node extends EventEmitter {
             return _scope.nodeClientsAddressIndex.get(addressHash);
         }
 
-        let client = new Client({id: _scope.id, options: _scope.options});
+        let client = new Client();
+        let connectMsg = {node: this.getId(), layer : this.getLayer()};
+        await client.connect(address, { data: connectMsg, response: ['node', 'layer']});
 
-        client.on(events.SERVER_FAILURE, this::_serverFailureHandler);
-        client.on('error', (err) => {
-            this.emit('error', err);
-        });
-        let {actorId, options} = await client.connect(address);
-
-         debug(`Node connected: ${this.getId()} -> ${actorId}`);
-        _scope.nodeClientsAddressIndex.set(addressHash, actorId);
-        _scope.nodeClients.set(actorId, client);
+        let actorModel = client.getServerActor();
+        let {node, layer} = actorModel.getData();
+         debug(`Node connected: ${this.getId()} -> ${node}`);
+        _scope.nodeClientsAddressIndex.set(addressHash, node);
+        _scope.nodeClients.set(node, client);
 
         this::_addExistingListenersToClient(client);
-        return actorId;
+        return node;
     }
 
     async disconnect(address = 'tcp://127.0.0.1:3000') {
@@ -151,30 +231,27 @@ export default class Node extends EventEmitter {
 
         let nodeId = _scope.nodeClientsAddressIndex.get(addressHash);
         let client = _scope.nodeClients.get(nodeId);
-
-        client.removeAllListeners(events.SERVER_FAILURE);
-
         await client.disconnect();
-        this::_removeClientAllListeners(client);
+        this::_removeClientAllListeners(client)
         _scope.nodeClients.delete(nodeId);
-        _scope.nodeClientsAddressIndex.delete(addressHash);
+        _scope.nodeClientsAddressIndex.delete(addressHash)
         return true;
     }
 
-    async stop() {
+    stop() {
         let _scope = _private.get(this);
         let stopPromise = [];
         if(_scope.nodeServer.isOnline()) {
-            _scope.nodeServer.unbind();
+            stopPromise.push(_scope.nodeServer.unbind());
         }
 
         _scope.nodeClients.forEach((client)=>{
             if(client.isOnline()) {
                 stopPromise.push(client.disconnect());
             }
-        }, this);
+        });
 
-        await Promise.all(stopPromise);
+        return Promise.all(stopPromise);
     }
 
     onRequest(endpoint, fn) {
@@ -192,7 +269,7 @@ export default class Node extends EventEmitter {
 
         _scope.nodeClients.forEach((client)=>{
             client.onRequest(endpoint, fn);
-        }, this);
+        });
     }
 
     offRequest(endpoint, fn) {
@@ -232,7 +309,7 @@ export default class Node extends EventEmitter {
         _scope.nodeServer.offTick(event);
         _scope.nodeClients.forEach((client)=>{
             client.offTick(event, fn);
-        }, this);
+        });
 
         let tickWatcher = _scope.tickWatcherMap.get(event);
         if(tickWatcher) {
@@ -271,30 +348,76 @@ export default class Node extends EventEmitter {
         throw new Error(`Node with ${nodeId} is not found.`);
     }
 
-    async requestAny(endpoint, data, timeout = globals.REQUEST_TIMEOUT, filter = {}) {
-        let filteredNodes = this.getFilteredNodes(filter);
-        let nodeId = this::_getWinnerNode(filteredNodes, endpoint);
+    async requestLayerAny(layer, endpoint, data, timeout = globals.REQUEST_TIMEOUT) {
+        let layerNodes = this.getNodes(layer);
+        let nodeId = this::_getWinnerNode(layerNodes, endpoint);
         return this.request(nodeId, endpoint, data, timeout);
     }
 
-    async tickAny(event, data, filter = {}) {
-        let filteredNodes = this.getFilteredNodes(filter);
-        if (!filteredNodes.length) {
-            throw 'there is no node with that filter';
-        }
-        let nodeId = this::_getWinnerNode(filteredNodes, event);
+    async tickLayerAny(layer, event, data) {
+        let layerNodes = this.getNodes(layer);
+        let nodeId = this::_getWinnerNode(layerNodes, event);
         return this.tick(nodeId, event, data);
     }
 
-    async tickAll(event, data, filter = {}) {
-        let filteredNodes = this.getFilteredNodes(filter);
+    async tickLayer(layer, event, data) {
+        let layerNodes = this.getNodes(layer);
         let tickPromises = [];
 
-        filteredNodes.forEach((nodeId)=> {
+        layerNodes.forEach((nodeId)=> {
             tickPromises.push(this.tick(nodeId, event, data));
         }, this);
 
         return Promise.all(tickPromises);
+    }
+
+    // ** TODO what if we add a fn to process data
+    // ** we can proxy event to multiple endpoints
+    async proxyTick(eventsToProxy, nodeId, fn) {
+        if(_.isString(eventsToProxy)) {
+            eventsToProxy = [eventsToProxy];
+        }
+
+        let _scope = _private.get(this);
+        eventsToProxy.forEach((event) => {
+            this::_proxyTickToNode(event, nodeId);
+        }, this);
+
+        // ** TODO:: @avar add destroy function as a return, like we have for clearInterval or proxyRequest
+        return true;
+    }
+
+    // ** TODO what if we add a fn to process data
+    // ** we can proxy endpoint to just one endpoint
+    async proxyRequest(fromEndpoint, toNodeId, toEndpoint, timeout = globals.REQUEST_TIMEOUT) {
+        let _scope = _private.get(this);
+        debug("proxyRequest",  _scope.requestWatcherMap);
+        let _self = this;
+        toEndpoint = toEndpoint ? toEndpoint : fromEndpoint;
+
+        let requestWatcher = _scope.requestWatcherMap.get(fromEndpoint);
+
+        if(!requestWatcher) {
+            requestWatcher = new RequestWatcher(fromEndpoint);
+            _scope.requestWatcherMap.set(fromEndpoint, requestWatcher);
+        }
+
+        if(requestWatcher.getProxyNodeSize() > 0) {
+            throw new Error(`Already has a proxy for ${fromEndpoint}`);
+        }
+
+        requestWatcher.addProxyNode(toNodeId);
+
+        _self.onRequest(fromEndpoint, async (request) => {
+            let data = request.body;
+            let responseData = await _self.request(toNodeId, toEndpoint, data, timeout)
+            request.reply(responseData);
+        });
+
+        return () => {
+            requestWatcher.removeProxyNode(toNodeId);
+            _scope.requestWatcherMap.delete(fromEndpoint);
+        };
     }
 }
 
@@ -303,7 +426,7 @@ export default class Node extends EventEmitter {
 function _getClientByNode(nodeId) {
     let _scope = _private.get(this);
     let actors = _scope.nodeServer.getOnlineClients().filter((actor) => {
-        let { node } =  actor.getOptions();
+        let { node } =  actor.getData();
         return node == nodeId;
     });
 
@@ -319,13 +442,32 @@ function _getClientByNode(nodeId) {
 }
 
 function _generateNodeId() {
-    return animal.getId()
+    return animal.getId();
 }
 
 function _getWinnerNode(nodeIds, tag) {
     let len = nodeIds.length;
     let idx = Math.floor(Math.random() * len);
     return nodeIds[idx];
+}
+
+function _proxyTickToNode(event, nodeId) {
+    let _scope = _private.get(this);
+
+    let tickWatcher = _scope.tickWatcherMap.get(event);
+
+    if(!tickWatcher) {
+        tickWatcher = new TickWatcher(event);
+        _scope.tickWatcherMap.set(event, tickWatcher);
+    }
+
+    // ** to be sure that we are adding onTick for each node just once
+    if(!tickWatcher.hasProxyNode(nodeId)) {
+        tickWatcher.addProxyNode(nodeId);
+        this.onTick(event, (data) => {
+            this.tick(nodeId, event, data);
+        });
+    }
 }
 
 function _addExistingListenersToClient(client) {
@@ -361,11 +503,3 @@ function _removeClientAllListeners(client) {
         client.offRequest(endpoint);
     }, this);
 }
-
-let _clientFailureHandler = (clientActor) => {
-    this.emit(events.CLIENT_FAILURE, clientActor.getOptions())
-};
-
-let _serverFailureHandler = (serverActor) => {
-    this.emit(events.SERVER_FAILURE, serverActor.getOptions());
-};

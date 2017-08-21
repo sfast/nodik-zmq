@@ -2,12 +2,11 @@ import debugFactory from 'debug';
 let debug = debugFactory('node::sockets::socket');
 
 import _ from 'underscore';
-import animal from 'animal-id';
-import EventEmitter from 'pattern-emitter'
+import crypto from 'crypto'
+import { EventEmitter } from 'events'
 
 import Envelop from './envelope'
 import { EnvelopType } from './enum'
-import { RequestWatcher} from './watchers'
 
 let _private = new WeakMap();
 
@@ -20,20 +19,18 @@ class SocketIsNotOnline extends Error {
 
 
 export default class Socket extends EventEmitter {
-    constructor ({id, socket}) {
+    constructor (socket) {
         super();
         let _scope = {};
-        let socketId = id || Socket.generateSocketId();
-        socket.identity = socketId;
+        let randomId = crypto.randomBytes(20).toString("hex");
+        socket.identity = randomId;
 
-        _scope.id = socketId;
+        _scope.id = randomId;
         _scope.socket = socket;
         _scope.online = false;
         _scope.requests = new Map();
-        _scope.requestWatcherMap = new Map();
-        _scope.tickEmitter = new EventEmitter();
-        _scope.socket.on('message', this::onSocketMessage);
-        _scope.options = {};
+        _scope.socket.on("message" , this::onSocketMessage);
+        _scope.cache = new Map();
         _private.set(this, _scope);
     }
 
@@ -42,8 +39,14 @@ export default class Socket extends EventEmitter {
         return _scope.id;
     }
 
-    static generateSocketId() {
-        return animal.getId()
+    setItem(key, value) {
+        let _scope = _private.get(this);
+        _scope.cache.set(key, value);
+    }
+
+    getItem(key) {
+        let _scope = _private.get(this);
+        return _scope.cache.get(key);
     }
 
     setOnline() {
@@ -61,17 +64,7 @@ export default class Socket extends EventEmitter {
         return _scope.online;
     }
 
-    setOptions(options) {
-        let _scope = _private.get(this);
-        _scope.options = options;
-    }
-
-    getOptions() {
-        let _scope = _private.get(this);
-        return _scope.options;
-    }
-
-    async request(envelop, reqTimeout = 5000) {
+    async request(envelop, reqTimeout) {
         let _scope = _private.get(this);
         if(!this.isOnline()) {
             let err = new Error(`Sending failed as socket ${this.getId()} is not online`);
@@ -82,13 +75,14 @@ export default class Socket extends EventEmitter {
         let timeout = null;
 
         return new Promise((resolve, reject) => {
-            timeout = setTimeout(() => {
-                if(_scope.requests.has(envelopId)) {
-                    let requestObj = _scope.requests.get(envelopId);
-                    _scope.requests.delete(envelopId);
-                    requestObj.reject(`Request ${envelopId} timeouted on socket ${this.getId()}`);
-                }
-            }, reqTimeout);
+            if(reqTimeout) {
+                timeout = setTimeout(() => {
+                    if(_scope.requests.has(envelopId)) {
+                        _scope.requests.delete(envelopId);
+                        reject(`Request ${envelopId} timeouted on socket ${this.getId()}`);
+                    }
+                }, reqTimeout);
+            }
 
             _scope.requests.set(envelopId, {resolve : resolve, reject: reject, timeout : timeout});
            this.sendEnvelop(envelop);
@@ -111,125 +105,109 @@ export default class Socket extends EventEmitter {
         _scope.socket.send(this.getSocketMsg(envelop));
     }
 
-    close(){
+    async close(cleanup){
+        if (!this.isOnline()) {
+            return true;
+        }
+
         let _scope = _private.get(this);
         _scope.socket.removeAllListeners('message');
+
+        new Promise((resolve, reject) => {
+            setImmediate(() => {
+                try {
+                    // ** closeSocket is overrided under dealer and router
+                    cleanup();
+                    this.setOffline();
+                    resolve("router - unbinded");
+                } catch(err) {
+                    debug(err);
+                    reject(err);
+                }
+            });
+        });
     }
 
     onRequest(endpoint, fn) {
         // ** function will called with argument  request = {body, reply}
-        let _scope = _private.get(this);
-        let requestWatcher = _scope.requestWatcherMap.get(endpoint);
-
-        if(!requestWatcher) {
-            requestWatcher = new RequestWatcher(endpoint);
-            _scope.requestWatcherMap.set(endpoint, requestWatcher);
-        }
-        if (typeof fn == 'function') {
-            requestWatcher.addRequestListener(fn);
-        }
+        this.on("request-" + endpoint, fn);
     }
 
     offRequest(endpoint, fn){
-        let _scope = _private.get(this);
+        let eventName = "request-" + endpoint;
+
         if(_.isFunction(fn)) {
-            let endpointWatcher = _scope.requestWatcherMap.get(endpoint);
-            if (!endpointWatcher) return;
-            endpointWatcher.removeFn(fn)
+            this.removeEventListener(eventName, fn);
             return;
         }
 
-        _scope.requestWatcherMap.delete(endpoint);
+        this.removeAllListeners(eventName);
     }
 
     onTick(event, fn) {
-        let _scope = _private.get(this);
-        _scope.tickEmitter.on(event, fn);
+        this.on(event, fn);
     }
 
     offTick(event, fn) {
-        let _scope = _private.get(this);
         if(_.isFunction(fn)) {
-            _scope.tickEmitter.removeListener(event, fn);
+            this.removeEventListener(event, fn);
             return;
         }
 
-        _scope.tickEmitter.removeAllListeners(event);
+        this.removeAllListeners(event);
     }
 }
 
 //** Handlers of specific envelop msg-es
 
 //** when socket is dealer identity is empty
-//** when socket is router, identity is the dealer which sends data
+//** when socket is router identity is the dealer which sends data
 function onSocketMessage(empty, envelopBuffer) {
-    let _scope = _private.get(this);
-    let {type, id, owner, recipient, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
-    let envelop = new Envelop({type, id, owner, recipient, tag});
+    let context = this;
+    let _scope = _private.get(context);
+
+    let {type, id, owner, tag} = Envelop.readMetaFromBuffer(envelopBuffer);
+    let envelop = new Envelop({type, id, owner, tag});
     let envelopData = Envelop.readDataFromBuffer(envelopBuffer);
 
     switch (type) {
         case EnvelopType.ASYNC:
-            _scope.tickEmitter.emit(tag, envelopData);
-            break;
+            context.emit(tag, envelopData);
         case EnvelopType.SYNC:
-            envelop.setData(envelopData);
-            this::syncEnvelopHandler(envelop);
+            context::syncEnvelopHandler(envelop, envelopData);
             break;
         case EnvelopType.RESPONSE:
-            envelop.setData(envelopData);
-            this::responseEnvelopHandler(envelop);
+            context::responseEnvelopHandler(envelop, envelopData);
             break;
     }
 }
 
-function syncEnvelopHandler(envelop) {
-    let self = this;
-    let _scope = _private.get(this);
-
-    let prevOwner = envelop.getOwner();
-    let handlers = [];
-    for (let endpoint of _scope.requestWatcherMap.keys()) {
-        if (endpoint instanceof RegExp){
-            if (endpoint.test(envelop.getTag())) {
-                handlers = handlers.concat([..._scope.requestWatcherMap.get(endpoint).getFnSet()])
-            }
-        } else if(endpoint == envelop.getTag()) {
-            handlers = handlers.concat([..._scope.requestWatcherMap.get(endpoint).getFnSet()]);
-        }
-    }
+function syncEnvelopHandler(envelop, envelopData) {
+    let context = this;
+    envelop.setData(envelopData);
     let request = {
-        body: envelop.getData(),
+        body: envelopData,
         reply : (data) => {
-            envelop.setRecipient(prevOwner);
-            envelop.setOwner(this.getId());
             envelop.setType(EnvelopType.RESPONSE);
             envelop.setData(data);
-            self.sendEnvelop(envelop);
-        },
-        next: (data) => {
-            if (!handlers.length) {
-                return this.reply(data);
-            }
-            this.body = data;
-            handlers.pop()(this);
+            context.sendEnvelop(envelop);
         }
     };
-    if (handlers.length) {
-        handlers.pop()(request);
-    }
+
+    let eventName = "request-" + envelop.getTag();
+    context.emit(eventName, request);
 }
 
-function responseEnvelopHandler(envelop) {
-    let _scope = _private.get(this);
-
+function responseEnvelopHandler(envelop, envelopData) {
+    let context = this;
+    let _scope = _private.get(context);
     let id = envelop.getId();
     if(_scope.requests.has(id)) {
         //** requestObj is like {resolve, reject, timeout : clearRequestTimeout}
         let requestObj = _scope.requests.get(id);
         clearTimeout(requestObj.timeout);
         //** resolving request promise with response data
-        requestObj.resolve(envelop.getData());
+        requestObj.resolve(envelopData);
         _scope.requests.delete(id);
     }
     else {

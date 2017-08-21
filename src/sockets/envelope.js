@@ -27,7 +27,7 @@ class Parse {
 
 
 export default class Envelop {
-    constructor({type, id, tag, data, owner = null, recipient = ''}) {
+    constructor({type, id, tag, data, owner}) {
         if(type) {
             this.setType(type);
         }
@@ -40,37 +40,35 @@ export default class Envelop {
         }
 
         this.owner = owner;
-        this.recipient = recipient;
     }
 
     static readMetaFromBuffer(buffer) {
         let type = buffer.readInt8(0);
         let id = buffer.slice(1,21).toString("hex");
-        let owner = buffer.slice(21,41).toString('utf8').replace(/\0/g, '');
-        let recipient = buffer.slice(41,61).toString('utf8').replace(/\0/g, '');
-        let tag = buffer.slice(61,81).toString('utf8').replace(/\0/g, '');
-        return {type, id, owner, recipient, tag};
+        let owner = buffer.slice(21,41).toString("hex");
+        let tag = buffer.slice(41,61).toString('utf8').replace(/\0/g, '');
+
+        return {type, id, owner, tag};
     }
 
     static readDataFromBuffer(buffer) {
-        let dataBuffer = Envelop.getDataBuffer(buffer);
-        return dataBuffer ? Parse.bufferToData(dataBuffer) : null;
+        if(buffer.length > 61){
+            return Parse.bufferToData(buffer.slice(61));
+        }
     }
 
     static getDataBuffer(buffer) {
-        if(buffer.length > 81){
-            return buffer.slice(81);
+        if(buffer.length > 61){
+            return buffer.slice(61);
         }
-
-        return null;
     }
 
     static fromBuffer(buffer) {
-        let {id, type, owner, recipient, tag} = Envelop.readMetaFromBuffer(buffer);
-        let envelop =  new Envelop({type, id, tag, owner, recipient});
+        let {id, type, owner, tag} = Envelop.readMetaFromBuffer(buffer);
+        let envelop =  new Envelop({type, id, tag, owner});
 
-        let envelopData = Envelop.readDataFromBuffer(buffer);
-        if(envelopData) {
+        if(buffer.length > 61){
+            let envelopData = Parse.bufferToData(buffer.slice(61));
             envelop.setData(envelopData);
         }
 
@@ -89,12 +87,8 @@ export default class Envelop {
         bufferArray.push(idBuffer);
 
         let ownerBuffer = Buffer.alloc(20);
-        ownerBuffer.write(this.owner.toString());
+        ownerBuffer.write(this.owner, 0, 20, 'hex');
         bufferArray.push(ownerBuffer);
-
-        let recipientBuffer = Buffer.alloc(20);
-        recipientBuffer.write(this.recipient.toString());
-        bufferArray.push(recipientBuffer);
 
         let tagBuffer = Buffer.alloc(20, '');
         tagBuffer.write(this.tag.toString());
@@ -121,14 +115,6 @@ export default class Envelop {
 
     setOwner(owner) {
         this.owner = owner;
-    }
-
-    getRecipient() {
-        return this.recipient;
-    }
-
-    setRecipient(recipient) {
-        this.recipient = recipient;
     }
 
     // ** type of envelop

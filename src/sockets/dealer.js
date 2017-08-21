@@ -13,9 +13,9 @@ import { EnvelopType } from './enum'
 let _private = new WeakMap();
 
 export default class DealerSocket extends Socket {
-    constructor({id}) {
+    constructor() {
         let socket =  zmq.socket('dealer');
-        super({id, socket});
+        super(socket);
 
         let _scope = {};
         _scope.socket = socket;
@@ -36,7 +36,7 @@ export default class DealerSocket extends Socket {
     }
 
     // ** not actually connected
-    connect(routerAddress) {
+    async connect(routerAddress) {
         let _scope = _private.get(this);
 
         if(this.isOnline()) {
@@ -47,32 +47,31 @@ export default class DealerSocket extends Socket {
             this.setAddress(routerAddress);
         }
 
-        _scope.socket.connect(this.getAddress());
+        _scope.socket.connect(_scope.routerAddress);
         this.setOnline();
+        return true;
     }
 
     // ** not actually disconnected
-    disconnect() {
-        this.close();
+    async disconnect() {
+        return super.close(() => {
+            let _scope = _private.get(this);
+            _scope.socket.disconnect(_scope.routerAddress);
+            _scope.routerAddress = null;
+        });
     }
 
     //** Polymorfic Functions
     async request(event, data, timeout = 5000) {
+        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId()});
-        return super.request(envelop, timeout);
+        return super.request(envelop);
     }
 
     async tick(event, data) {
+        let _scope = _private.get(this);
         let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner: this.getId()});
         return super.tick(envelop);
-    }
-
-    close () {
-        super.close();
-        let _scope = _private.get(this);
-        _scope.socket.disconnect(_scope.routerAddress);
-        _scope.routerAddress = null;
-        this.setOffline();
     }
 
     getSocketMsg(envelop) {

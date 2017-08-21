@@ -15,9 +15,9 @@ import {EnvelopType} from './enum'
 let _private = new WeakMap();
 
 export default class RouterSocket extends Socket {
-    constructor({id}) {
+    constructor() {
         let socket = zmq.socket('router');
-        super({id, socket});
+        super(socket);
 
         let _scope = {};
         _scope.socket = socket;
@@ -63,31 +63,29 @@ export default class RouterSocket extends Socket {
     }
 
     // ** returns status
-    unbind() {
-        this.close();
-    }
-
-    close() {
-        super.close();
-        let _scope = _private.get(this);
-        _scope.socket.unbindSync(_scope.bindAddress);
-        _scope.bindAddress = null;
-        this.setOffline();
+    async unbind() {
+        return super.close(() => {
+            let _scope = _private.get(this);
+            _scope.socket.unbindSync(_scope.bindAddress);
+            _scope.bindAddress = null;
+        });
     }
 
     //** Polymorfic Functions
 
     async request(to, event, data, timeout = 5000) {
-        let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : this.getId(), recipient: to});
-        return super.request(envelop, timeout);
+        let _scope = _private.get(this);
+        let envelop = new Envelop({type: EnvelopType.SYNC, tag : event, data : data , owner : to});
+        return super.request(envelop);
     }
 
     async tick(to, event, data) {
-        let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner : this.getId(), recipient: to});
+        let _scope = _private.get(this);
+        let envelop = new Envelop({type: EnvelopType.ASYNC, tag: event, data: data, owner: to});
         return super.tick(envelop);
     }
 
     getSocketMsg(envelop) {
-        return [envelop.getRecipient(), '', envelop.getBuffer()];
+        return [envelop.getOwner(), '', envelop.getBuffer()];
     }
 }

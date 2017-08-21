@@ -1,25 +1,12 @@
 # nodik-zmq
 
-### About
- 
+## How to install
+
+```bash
+npm install node-zmq
+```
 With nodik-zmq its easy to create server(s) <---> server(s) communication 
 <br/>(e.g microservices).
-
-### Dependencies 
-You need to install zeromq lib for using Nodik.
-
-### How To Install
-
-```bash
-$ npm install nodik-zmq
-```
-
-### Run Tests
-```bash
-$ npm test
-```
-
-### How To Use
 
 ```ecmascript 6
 
@@ -65,6 +52,4 @@ layerA.proxyTick(eventToProxy, tonNodeId, timeout);
 
 ```
 
-### What We Are Using
-
-Under the hood we are using http://zeromq.org/ -s Dealer and Router sockets.
+(Under the hood we are using http://zeromq.org/ -s Dealer and Router sockets.)
